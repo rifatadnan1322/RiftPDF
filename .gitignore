@@ -1,0 +1,22 @@
+# build output
+.build/
+build/
+dist/
+*.app/
+DerivedData/
+
+# the Python environment is recreated by setup.sh, never committed
+engine/.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# packaging
+*.zip
+*.dmg
+*.icns.tmp
+
+# editors and OS
+.DS_Store
+.vscode/
+.idea/
