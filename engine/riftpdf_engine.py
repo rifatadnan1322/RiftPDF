@@ -161,8 +161,20 @@ def save_optimised(doc, out_path, linear=True):
         doc.save(out_path, **kwargs)
 
 
+# A GUI app inherits a minimal PATH from launchd, with no /opt/homebrew/bin, so
+# Homebrew and MacPorts tools are invisible unless we go looking for them.
+EXTRA_TOOL_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
+
+
 def which(name):
-    return shutil.which(name)
+    found = shutil.which(name)
+    if found:
+        return found
+    for directory in EXTRA_TOOL_DIRS:
+        candidate = os.path.join(directory, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -213,75 +225,31 @@ PRESETS = {
 
 
 def _recompress_images(doc, target_dpi, quality, grayscale=False, report=None):
-    """Downsample + re-encode every raster image that is bigger than it needs
-    to be for its placement on the page. Returns bytes saved."""
-    from PIL import Image
+    """Downsample and re-encode the raster images in the document.
 
-    saved = 0
-    seen = set()
-    total = doc.page_count or 1
-    for pno in range(doc.page_count):
-        if report:
-            report(pno / total, f"Recompressing images — page {pno + 1} of {total}")
-        for info in doc.get_page_images(pno, full=True):
-            xref = info[0]
-            if xref in seen:
-                continue
-            seen.add(xref)
-            try:
-                rects = doc[pno].get_image_rects(xref)
-            except Exception:
-                rects = []
-            try:
-                raw = doc.extract_image(xref)
-            except Exception:
-                continue
-            if not raw or not raw.get("image"):
-                continue
-            original = raw["image"]
-            if len(original) < 12 * 1024:      # tiny — not worth the churn
-                continue
-            try:
-                im = Image.open(io.BytesIO(original))
-                im.load()
-            except Exception:
-                continue
-
-            # how many pixels does this image actually need on the page?
-            if rects:
-                w_pt = max(r.width for r in rects) or 1
-                h_pt = max(r.height for r in rects) or 1
-                max_w = max(16, int(w_pt / 72.0 * target_dpi))
-                max_h = max(16, int(h_pt / 72.0 * target_dpi))
-            else:
-                max_w, max_h = im.width, im.height
-
-            if im.mode in ("P", "LA", "PA"):
-                im = im.convert("RGBA" if "A" in im.mode else "RGB")
-            has_alpha = im.mode in ("RGBA", "LA")
-
-            if im.width > max_w or im.height > max_h:
-                im.thumbnail((max_w, max_h), Image.LANCZOS)
-
-            if grayscale and not has_alpha:
-                im = im.convert("L")
-
-            buf = io.BytesIO()
-            if has_alpha:
-                im.save(buf, format="PNG", optimize=True)
-            else:
-                if im.mode not in ("RGB", "L"):
-                    im = im.convert("RGB")
-                im.save(buf, format="JPEG", quality=quality, optimize=True, progressive=True)
-            new = buf.getvalue()
-
-            if len(new) < len(original) * 0.92:
-                try:
-                    doc.replace_image(xref, stream=new)
-                    saved += len(original) - len(new)
-                except Exception:
-                    pass
-    return saved
+    Uses PyMuPDF's own bulk rewriter. Replacing images one at a time by hand
+    silently produced blank pages: a replaced image has to stay wired into the
+    page resources and content stream, which Page.replace_image handles and a
+    naive loop does not.
+    """
+    if report:
+        report(0.15, "Recompressing images")
+    try:
+        doc.rewrite_images(
+            dpi_threshold=int(target_dpi),
+            dpi_target=int(target_dpi),
+            quality=int(quality),
+            lossy=True, lossless=True, bitonal=True, color=True, gray=True,
+            set_to_gray=bool(grayscale),
+        )
+    except Exception as exc:
+        # Surface it: without this pass the file barely shrinks, and that used
+        # to fail silently for months.
+        emit({"type": "progress", "value": 0.5,
+              "message": f"Image recompression unavailable: {exc}"})
+    if report:
+        report(0.9, "Recompressing images")
+    return 0
 
 
 def _compress_pass(src, out, dpi, quality, grayscale, gs_preset,

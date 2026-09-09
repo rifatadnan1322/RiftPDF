@@ -128,6 +128,15 @@ extension AppModel {
 
         job("Compressing to \(formatBytes(targetBytes))") { task in
             let input = try doc.stageToTemporaryFile()
+            Diagnostic.log("""
+                compress_target requested
+                  document      \(doc.url?.path ?? "untitled")
+                  size on disk  \(Diagnostic.size(doc.url?.path))
+                  backing file  \(doc.backingFileURL?.lastPathComponent ?? "none")
+                  staged input  \(Diagnostic.size(input.path)) bytes
+                  target        \(targetBytes) bytes
+                  greyscale     \(allowGrayscale)   stripMetadata \(stripMetadata)   inPlace \(inPlace)
+                """)
             let output = destination ?? FileManager.default.temporaryDirectory
                 .appendingPathComponent("riftpdf-target-\(UUID().uuidString).pdf")
             var full: [String: Any] = ["input": input.path, "output": output.path]
@@ -147,6 +156,14 @@ extension AppModel {
                                     backingFile: output)
             }
 
+            Diagnostic.log("""
+                compress_target result
+                  after      \(res["after"] as? Int ?? -1) bytes
+                  hitTarget  \(res["hitTarget"] as? Bool ?? false)
+                  settings   \(res["settings"] as? String ?? "?")
+                  attempts   \(res["attempts"] as? Int ?? -1)
+                  note       \(res["note"] as? String ?? "-")
+                """)
             let hit = res["hitTarget"] as? Bool ?? false
             let before = res["beforeHuman"] as? String ?? ""
             let after = res["afterHuman"] as? String ?? ""

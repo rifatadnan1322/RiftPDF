@@ -85,6 +85,13 @@ final class Engine: @unchecked Sendable {
         var env = ProcessInfo.processInfo.environment
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
+        // An app launched from Finder inherits a bare PATH from launchd, so
+        // Homebrew tools like Ghostscript are invisible to the engine. This
+        // silently cost most of the compression.
+        let toolDirectories = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
+        let existing = (env["PATH"] ?? "").split(separator: ":").map(String.init)
+        env["PATH"] = (existing + toolDirectories.filter { !existing.contains($0) })
+            .joined(separator: ":")
         process.environment = env
 
         let out = Pipe(), err = Pipe()
