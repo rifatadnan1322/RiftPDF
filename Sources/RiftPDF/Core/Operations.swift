@@ -86,7 +86,8 @@ extension AppModel {
                 return ("Already about as small as it gets",
                         "\(before) → \(after). Try a stronger preset for more.")
             }
-            return ("Shrunk by \(Int(ratio))%", "\(before) → \(after)")
+            return ("Shrunk by \(Int(ratio))%",
+                    "\(before) → \(after)" + (inPlace ? " — press ⌘S to write it to disk" : ""))
         }
         if inPlace {
             transform(doc, title: "Compressing", command: "compress",
@@ -158,6 +159,7 @@ extension AppModel {
                 var detail = "\(before) → \(after), under your \(target) target"
                 if attempts > 0 { detail += " · \(settings) · \(attempts) passes" }
                 if let note { detail = note }
+                if destination == nil { detail += " — press ⌘S to write it to disk" }
                 self.success("Now \(after)", detail,
                              reveal: destination != nil ? output : nil)
             } else {

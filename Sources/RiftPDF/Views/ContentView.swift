@@ -204,11 +204,32 @@ struct StatusBar: View {
                     .labelStyle(CompactLabel())
             }
 
+            // The size on disk, and — when an operation has produced smaller
+            // bytes that are not written yet — what saving will actually give.
             if let url = doc.url,
-               let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int {
-                Text(formatBytes(size))
+               let onDisk = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int {
+                let pending: Int? = doc.backingFileURL.flatMap { backing in
+                    guard backing.standardizedFileURL != url.standardizedFileURL else { return nil }
+                    return (try? FileManager.default.attributesOfItem(atPath: backing.path)[.size]) as? Int
+                }
+                if let pending, pending != onDisk {
+                    HStack(spacing: 4) {
+                        Text(formatBytes(onDisk))
+                            .foregroundStyle(.tertiary)
+                            .strikethrough()
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.tertiary)
+                        Text(formatBytes(pending))
+                            .foregroundStyle(Color.accentColor)
+                    }
                     .font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .help("Save to write the smaller file to disk")
+                } else {
+                    Text(formatBytes(onDisk))
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Button {
