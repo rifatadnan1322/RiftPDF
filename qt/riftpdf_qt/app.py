@@ -397,7 +397,12 @@ class MainWindow(QMainWindow):
             bits.append("Ghostscript")
         if caps.get("qpdf"):
             bits.append("qpdf")
-        bits.append("Tesseract" if caps.get("tesseract") else "no OCR engine")
+        if caps.get("tesseract"):
+            bits.append("Tesseract OCR")
+        elif caps.get("windowsocr"):
+            bits.append("Windows OCR")
+        else:
+            bits.append("no OCR engine")
         if not caps.get("libreoffice"):
             bits.append("no LibreOffice")
         self.statusBar().showMessage(" · ".join(bits), 8000)
@@ -411,11 +416,83 @@ class MainWindow(QMainWindow):
             "Nothing is uploaded anywhere.</p>"
             f"<p style='color:#66666E'>MuPDF {caps.get('pymupdf')} · "
             f"pikepdf {caps.get('pikepdf')}<br>"
-            f"Tesseract OCR: {'yes' if caps.get('tesseract') else 'not installed'}<br>"
+            f"OCR: {_ocr_description(caps)}<br>"
             f"LibreOffice: {'yes' if caps.get('libreoffice') else 'not installed'}</p>")
 
 
+def _ocr_description(caps) -> str:
+    """Name the recogniser that will actually be used, not the one that isn't."""
+    if caps.get("tesseract"):
+        return "Tesseract"
+    if caps.get("windowsocr"):
+        return "built into Windows, nothing to install"
+    return "not available"
+
+
 def main() -> int:
+    # RIFTPDF_QT_CAPABILITIES=1 prints what this build can do and exits without
+    # opening a window. A packaged .exe is otherwise very hard to interrogate:
+    # the answer that matters is the one from inside the bundle, not from the
+    # source tree it was built out of.
+    # --command runs one engine command and exits, with no window at all.
+    # It makes the app scriptable for batch work, and it is the only way to
+    # exercise a packaged .exe's engine without a person clicking things.
+    #
+    #   RiftPDF.exe --command ocr --input in.pdf --output out.pdf
+    #   RiftPDF.exe --command selftest
+    #
+    # Arguments are plain flags rather than a JSON string because PowerShell
+    # strips the quotes out of {"input":"x"} before the program ever sees it,
+    # which fails silently. A JSON payload is still accepted, inline or as
+    # @payload.json, for callers that can quote it properly.
+    if "--command" in sys.argv:
+        import json
+        at = sys.argv.index("--command")
+        rest = sys.argv[at + 1:]
+        if not rest:
+            print("--command needs the name of a command", file=sys.stderr)
+            return 2
+        name, rest = rest[0], rest[1:]
+
+        payload = {}
+        if rest and rest[0].startswith("@"):
+            payload = json.loads(Path(rest[0][1:]).read_text(encoding="utf-8"))
+        elif rest and rest[0].lstrip().startswith("{"):
+            payload = json.loads(rest[0])
+        else:
+            key = None
+            for piece in rest:
+                if piece.startswith("--"):
+                    key = piece[2:]
+                    payload[key] = True          # a bare flag means yes
+                elif key is not None:
+                    try:                          # numbers and true/false
+                        payload[key] = json.loads(piece)
+                    except ValueError:
+                        payload[key] = piece
+                    key = None
+
+        try:
+            outcome = bridge.engine.run_command(name, payload) or {}
+        except Exception as exc:
+            print(json.dumps({"error": str(exc)}), file=sys.stderr)
+            return 1
+        print(json.dumps(outcome, indent=2, default=str), file=sys.stderr)
+        return 0
+
+    wanted = os.environ.get("RIFTPDF_QT_CAPABILITIES")
+    if wanted:
+        import json
+        report = dict(bridge.capabilities())
+        report["ocrBackend"] = bridge.ocr_backend() or "none"
+        text = json.dumps(report, indent=2, sort_keys=True)
+        if wanted not in ("1", "true", "yes"):
+            Path(wanted).write_text(text, encoding="utf-8")
+        # A windowed build has no stdout to speak of, but stderr still reaches
+        # whoever launched it.
+        print(text, file=sys.stderr)
+        return 0
+
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("RiftPDF")

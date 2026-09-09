@@ -52,6 +52,11 @@ def main() -> int:
         state = "yes" if caps.get(tool) else "no"
         line(tool, f"{state:<5} ({needed_for})")
 
+    print()
+    print("  Built in, nothing to install")
+    windows_ocr = bool(caps.get("windowsocr"))
+    line("Windows OCR", f"{'yes' if windows_ocr else 'no':<5} (OCR without Tesseract)")
+
     # --- prove compression actually works -------------------------------
     print("\n  Compression test")
     import pymupdf
@@ -106,11 +111,57 @@ def main() -> int:
         line("image error", result["imageError"])
 
     healthy = result["hitTarget"] and ink > 500 and after < before * 0.6
-    print("\n" + "=" * 58)
-    print("  RESULT: compression is working" if healthy
-          else "  RESULT: SOMETHING IS WRONG — paste this block back")
+
+    # --- prove OCR actually works ---------------------------------------
+    have_ocr = bool(caps.get("tesseract") or windows_ocr)
+    ocr_healthy = True
+    if have_ocr:
+        print()
+        print("  OCR test")
+        # A page that is purely an image, which is what OCR exists to handle.
+        built = pymupdf.open()
+        drawn = built.new_page(width=612, height=792)
+        drawn.insert_text((72, 130), "Searchable Document", fontname="hebo", fontsize=26)
+        drawn.insert_text((72, 180), "The quick brown fox jumps over the lazy dog.",
+                          fontname="helv", fontsize=14)
+        raster = drawn.get_pixmap(dpi=200)
+        built.close()
+
+        scan = pymupdf.open()
+        scan_page = scan.new_page(width=612, height=792)
+        scan_page.insert_image(pymupdf.Rect(0, 0, 612, 792), pixmap=raster)
+        scan_path = work / "scan.pdf"
+        scan.save(str(scan_path))
+        scan.close()
+
+        searchable = work / "scan_ocr.pdf"
+        try:
+            ocr = engine.run_command("ocr", {"input": str(scan_path),
+                                             "output": str(searchable)})
+            done = pymupdf.open(str(searchable))
+            recovered = done[0].get_text("text").strip()
+            hits = done[0].search_for("quick")
+            done.close()
+            line("recogniser", ocr.get("engine", "?"))
+            line("text recovered", f"{len(recovered)} characters")
+            line("word is findable", "yes" if hits else "NO")
+            if ocr.get("note"):
+                line("note", ocr["note"])
+            ocr_healthy = bool(hits) and len(recovered) > 20
+        except Exception as exc:
+            line("OCR FAILED", str(exc))
+            ocr_healthy = False
+    else:
+        print()
+        print("  OCR test               skipped, no recogniser on this machine")
+
+    working = "compression and OCR are working" if have_ocr else "compression is working"
     print()
-    return 0 if healthy else 1
+    print("=" * 58)
+    print(f"  RESULT: {working}" if healthy and ocr_healthy
+          else "  RESULT: SOMETHING IS WRONG - paste this block back")
+    print()
+    return 0 if (healthy and ocr_healthy) else 1
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ Qt application for Windows and Linux, both driving the same Python engine.
 engine/riftpdf_engine.py   the engine — 40 commands, all the PDF work
 Sources/RiftPDF/           macOS app (SwiftUI + PDFKit), ~7,000 lines
 qt/riftpdf_qt/             Windows and Linux app (PySide6)
-tools/selfcheck.py         proves compression works on this machine
+tools/selfcheck.py         proves compression and OCR work on this machine
 ```
 
 The engine runs two ways: the macOS app spawns it as a subprocess and reads
@@ -22,8 +22,10 @@ worker thread, because a PyInstaller bundle cannot spawn itself.
 # Windows
 powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
 # either
-python tools/selfcheck.py           # capability report + compression proof
+python tools/selfcheck.py           # capability report + compression and OCR proof
 python qt/main.py                   # the Qt app
+python qt/main.py --command selftest            # no window, prints JSON to stderr
+python qt/main.py --command ocr --input a.pdf --output b.pdf
 ```
 
 Verify an interface without a person watching — both apps photograph their
@@ -73,10 +75,29 @@ as failure when the number on screen was the stale one.
 `~/Desktop` behind the Desktop-access prompt, which blocks the app from reading
 its own bundled engine — the symptom is "Engine starting…" forever.
 
+**OCR needs nothing installed on Windows.** Windows 10 and 11 ship
+`Windows.Media.Ocr`, reached through the `winsdk` package, so the OCR button
+works on a stock machine with no Tesseract. `cmd_ocr` picks Tesseract when it
+is there and Windows otherwise. The Windows path keeps the original page and
+lays an invisible text layer over it, rather than rasterising the page the way
+Tesseract's writer does, so nothing is re-rendered. PyInstaller needs
+`--collect-all winsdk`: those namespaces are extension modules loaded at run
+time, so nothing static points at them and they would be dropped, silently
+taking OCR with them.
+
+**PowerShell breaks two obvious things about a windowed .exe.** It strips the
+quotes out of an inline JSON argument before the program sees it, so
+`--command` takes plain flags instead. And it does not wait for a GUI-subsystem
+program, so `& $exe` returns before any work is done and reads as a silent
+failure — `Start-Process -Wait` is required. Both were found by running them,
+which is the only way they get found.
+
 ## State
 
-macOS: complete and installed. Windows: `.exe` builds and the interface runs;
-see `docs/WINDOWS.md` for what is verified and what is not.
+macOS: complete and installed. Windows: verified on the machine itself — the
+`.exe` launches, renders, resolves its bundled engine, compresses without
+Ghostscript and does OCR without Tesseract. `docs/WINDOWS.md` records what was
+actually run and what still has not been.
 
 Never claim a feature works without having run it in the configuration the user
 has. Three rounds of "it works for me" on the compression bug were three rounds

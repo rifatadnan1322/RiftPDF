@@ -43,6 +43,11 @@ def main() -> int:
         "--hidden-import", "PIL",
         "--collect-submodules", "pdf2docx",
     ]
+    if os.name == "nt":
+        # winsdk loads its namespaces as separate extension modules at run
+        # time, so nothing static points at them and PyInstaller would leave
+        # them out — taking Windows OCR with them.
+        command += ["--collect-all", "winsdk"]
     if icon.exists():
         command += ["--icon", str(icon)]
     command.append(str(ROOT / "qt" / "main.py"))

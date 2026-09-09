@@ -103,13 +103,14 @@ def capabilities() -> dict:
 
 
 def ocr_backend() -> str | None:
-    """Which OCR engine this machine can actually use."""
-    if engine.which("tesseract"):
+    """Which OCR engine this machine can actually use.
+
+    The engine decides; asking it keeps one answer rather than two that can
+    drift apart.
+    """
+    caps = capabilities()
+    if caps.get("tesseract"):
         return "tesseract"
-    if sys.platform == "win32":
-        try:
-            import winsdk.windows.media.ocr  # noqa: F401
-            return "windows"
-        except Exception:
-            return None
+    if caps.get("windowsocr"):
+        return "windows"
     return None

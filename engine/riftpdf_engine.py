@@ -96,6 +96,7 @@ def selftest():
         "ghostscript": bool(which("gs")),
         "qpdf": bool(which("qpdf")),
         "tesseract": bool(which("tesseract")),
+        "windowsocr": windows_ocr_available(),
     }
 
 
@@ -1822,17 +1823,162 @@ def _tessdata_dir():
     return None
 
 
+# Tesseract names languages in ISO 639-2 ("eng"); Windows wants BCP-47
+# ("en-US"). Translate the ones a person is likely to ask for, and otherwise
+# pass the tag through so an explicit "pt-BR" still works.
+_WINDOWS_LANGUAGE_TAGS = {
+    "eng": "en-US", "fra": "fr-FR", "deu": "de-DE", "spa": "es-ES",
+    "ita": "it-IT", "por": "pt-PT", "nld": "nl-NL", "swe": "sv-SE",
+    "dan": "da-DK", "nor": "nb-NO", "fin": "fi-FI", "pol": "pl-PL",
+    "rus": "ru-RU", "jpn": "ja-JP", "kor": "ko-KR", "ces": "cs-CZ",
+    "tur": "tr-TR", "ell": "el-GR", "chi_sim": "zh-Hans", "chi_tra": "zh-Hant",
+}
+
+# Windows will not recognise an image larger than this on a side.
+_WINDOWS_OCR_MAX_DIMENSION = 10000
+
+
+def windows_ocr_engine(language=None):
+    """The recogniser that Windows 10 and 11 already have, via winsdk.
+
+    Nothing needs installing: the language models are part of the OS. This is
+    the difference between OCR working and not working on a stock Windows
+    machine, where Tesseract is absent and there is no reason to make someone
+    go and fetch it.
+    """
+    if not WINDOWS:
+        return None
+    try:
+        from winsdk.windows.globalization import Language
+        from winsdk.windows.media.ocr import OcrEngine
+    except Exception:
+        return None
+    try:
+        if language:
+            tag = _WINDOWS_LANGUAGE_TAGS.get(language, language)
+            engine = OcrEngine.try_create_from_language(Language(tag))
+            if engine is not None:
+                return engine
+            # An unavailable language is worth saying out loud rather than
+            # silently recognising in the wrong one.
+            installed = [l.language_tag for l in OcrEngine.available_recognizer_languages]
+            raise EngineError(
+                f"Windows has no OCR language pack for '{tag}'. Installed: "
+                f"{', '.join(installed) or 'none'}. Add one under Settings > "
+                f"Time & language > Language & region.")
+        return OcrEngine.try_create_from_user_profile_languages()
+    except EngineError:
+        raise
+    except Exception:
+        return None
+
+
+def windows_ocr_available():
+    try:
+        return windows_ocr_engine() is not None
+    except Exception:
+        return False
+
+
+def windows_ocr_words(png_bytes, engine):
+    """Recognise words, and where each one sits in the image's own pixels."""
+    import asyncio
+
+    from winsdk.windows.graphics.imaging import BitmapDecoder
+    from winsdk.windows.storage.streams import DataWriter, InMemoryRandomAccessStream
+
+    async def run():
+        stream = InMemoryRandomAccessStream()
+        writer = DataWriter(stream.get_output_stream_at(0))
+        writer.write_bytes(png_bytes)
+        await writer.store_async()
+        await writer.flush_async()
+        stream.seek(0)
+        decoder = await BitmapDecoder.create_async(stream)
+        bitmap = await decoder.get_software_bitmap_async()
+        return await engine.recognize_async(bitmap)
+
+    # The Qt app runs engine commands on a worker thread, which has no event
+    # loop of its own; asyncio.run makes one and tears it down again.
+    recognised = asyncio.run(run())
+
+    words = []
+    for line in recognised.lines:
+        for word in line.words:
+            if not word.text.strip():
+                continue
+            box = word.bounding_rect
+            words.append((word.text, box.x, box.y, box.width, box.height))
+    return words
+
+
+def weld_text_layer(page, words, scale):
+    """Lay recognised words onto a page as text that draws nothing.
+
+    Render mode 3 is invisible but selectable, searchable and copyable, which
+    is the whole point of OCR. The page's own appearance is left exactly as it
+    was — unlike the Tesseract path, which rasterises each page into a fresh
+    PDF and so throws away whatever quality the original had.
+    """
+    rotation = page.rotation
+    derotate = page.derotation_matrix
+    added = 0
+    for text, x, y, width, height in words:
+        box_width = width * scale
+        box_height = height * scale
+        if box_width <= 0 or box_height <= 0:
+            continue
+
+        size = box_height * 0.8
+        # Stretch the type to the width the recogniser measured, so that
+        # selecting a word highlights that word and not half of its neighbour.
+        measured = pymupdf.get_text_length(text, fontname="helv", fontsize=size)
+        if measured > 0:
+            size = max(1.0, min(size * (box_width / measured), box_height * 3))
+
+        # Pixels are in the page as displayed; insert_text works in the page's
+        # own unrotated space, so send the point back through the rotation.
+        point = pymupdf.Point(x * scale, (y + height) * scale - box_height * 0.18)
+        if rotation:
+            point = point * derotate
+        try:
+            page.insert_text(point, text, fontname="helv", fontsize=size,
+                             render_mode=3, rotate=rotation)
+            added += 1
+        except Exception:
+            # One unrenderable glyph must not cost the rest of the page.
+            continue
+    return added
+
+
 def cmd_ocr(p):
     """Recognise text on scanned pages and weld in a searchable text layer.
 
-    Pages that already carry real text are copied through untouched, so a mixed
-    document does not get flattened into images.
+    Two recognisers, preferred in this order: Tesseract when it is installed,
+    because its accuracy is still the better of the two; otherwise the one
+    built into Windows, which needs nothing fetched or paid for. Pages that
+    already carry real text are copied through untouched, so a mixed document
+    does not get flattened into images.
     """
-    if not which("tesseract"):
+    backend = (p.get("backend") or "auto").lower()
+    have_tesseract = bool(which("tesseract"))
+
+    if backend == "tesseract" and not have_tesseract:
         raise EngineError(
             "Tesseract is not installed. On Windows install it from "
             "https://github.com/UB-Mannheim/tesseract/wiki, on macOS run "
             "'brew install tesseract'.")
+    if backend == "auto":
+        backend = "tesseract" if have_tesseract else ("windows" if WINDOWS else "")
+
+    if backend == "windows":
+        return _ocr_windows(p)
+    if backend != "tesseract":
+        raise EngineError(
+            "No OCR engine is available. Install Tesseract — on Windows from "
+            "https://github.com/UB-Mannheim/tesseract/wiki, on macOS with "
+            "'brew install tesseract'.")
+
     tessdata = _tessdata_dir()
     if not tessdata:
         raise EngineError("Tesseract is installed but its language data was not found. "
@@ -1871,8 +2017,75 @@ def cmd_ocr(p):
     for page in check:
         characters += len(page.get_text("text").strip())
     check.close()
-    result(output=p["output"], pagesRecognised=recognised,
+    result(output=p["output"], engine="tesseract", pagesRecognised=recognised,
            pagesCopied=len(pages) - recognised, characters=characters)
+
+
+def _ocr_windows(p):
+    """OCR through the recogniser Windows already ships.
+
+    The original page is kept and an invisible text layer is laid over it, so
+    a scan becomes searchable without being re-rendered and losing quality.
+    """
+    language = p.get("language") or None
+    engine = windows_ocr_engine(language)
+    if engine is None:
+        raise EngineError(
+            "Windows OCR is unavailable. It needs Windows 10 or later and the "
+            "'winsdk' package; run setup_windows.ps1 to install it.")
+
+    doc = open_doc(p["input"], p.get("password"))
+    pages = parse_pages(p.get("pages"), doc.page_count)
+    dpi = int(p.get("dpi", 300))
+    force = bool(p.get("force"))
+
+    out = pymupdf.open()
+    recognised = 0
+    words_found = 0
+    for i, pno in enumerate(pages):
+        progress(i / max(1, len(pages)), f"Reading page {pno + 1} of {len(pages)}")
+        page = doc[pno]
+        existing = page.get_text("text").strip()
+        out.insert_pdf(doc, from_page=pno, to_page=pno)
+        if len(existing) > 20 and not force:
+            continue
+
+        target = out[-1]
+        # Keep the render inside the recogniser's size limit, or it refuses.
+        box = target.rect
+        longest = max(box.width, box.height) or 1
+        page_dpi = min(dpi, int(_WINDOWS_OCR_MAX_DIMENSION * 72 / longest))
+        page_dpi = max(72, page_dpi)
+
+        pix = target.get_pixmap(dpi=page_dpi)
+        words = windows_ocr_words(pix.tobytes("png"), engine)
+        words_found += weld_text_layer(target, words, 72.0 / page_dpi)
+        recognised += 1
+
+    progress(0.95, "Writing")
+    save_optimised(out, p["output"], linear=False)
+    characters = 0
+    check = pymupdf.open(p["output"])
+    for page in check:
+        characters += len(page.get_text("text").strip())
+    check.close()
+
+    note = None
+    if recognised and not words_found:
+        note = ("No text was recognised. The pages may be blank, or the text "
+                "may be in a language Windows has no OCR pack for.")
+    result(output=p["output"], engine="windows", pagesRecognised=recognised,
+           pagesCopied=len(pages) - recognised, characters=characters,
+           words=words_found, note=note)
+
+
+def cmd_selftest(p):
+    """What this machine can do, over the same channel as every other command.
+
+    Reachable as a command so a packaged build can be asked directly, without
+    a Python interpreter to import the engine with.
+    """
+    result(**selftest())
 
 
 def cmd_merge_annotations(p):
@@ -1971,6 +2184,7 @@ COMMANDS = {
     "audit_space": cmd_audit_space,
     "merge_annotations": cmd_merge_annotations,
     "ocr": cmd_ocr,
+    "selftest": cmd_selftest,
 }
 
 

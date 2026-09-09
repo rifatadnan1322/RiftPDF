@@ -56,8 +56,9 @@ Write-Host "What this machine can do:" -ForegroundColor Green
 & $venv engine\riftpdf_engine.py --selftest
 Write-Host ""
 Write-Host "Ghostscript, qpdf, Tesseract and LibreOffice all reading false is normal"
-Write-Host "on Windows. Compression works without them. OCR needs Tesseract and"
-Write-Host "Word conversion needs LibreOffice, if you want those."
+Write-Host "on Windows, and nothing needs fetching to fix it. Compression works"
+Write-Host "without them, and OCR uses the recogniser built into Windows when"
+Write-Host "windowsocr reads true. Only Word conversion still wants LibreOffice."
 Write-Host ""
 
 Write-Host "Run it now with:   .\.venv\Scripts\python.exe qt\main.py" -ForegroundColor Cyan

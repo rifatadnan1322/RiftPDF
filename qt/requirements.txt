@@ -5,3 +5,4 @@ Pillow>=10
 python-docx>=1.1
 pdf2docx>=0.5
 openpyxl>=3.1
+winsdk>=1.0.0b10; sys_platform == "win32"
