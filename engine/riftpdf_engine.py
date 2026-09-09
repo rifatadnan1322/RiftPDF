@@ -90,7 +90,9 @@ def selftest():
         "pymupdf": pymupdf.version[0],
         "pikepdf": pikepdf.__version__,
         "libreoffice": bool(which("soffice") or which("libreoffice")
-                            or os.path.exists("/Applications/LibreOffice.app")),
+                            or os.path.exists("/Applications/LibreOffice.app")
+                            or os.path.exists(r"C:\Program Files\LibreOffice\program\soffice.exe")),
+        "platform": sys.platform,
         "ghostscript": bool(which("gs")),
         "qpdf": bool(which("qpdf")),
         "tesseract": bool(which("tesseract")),
@@ -161,19 +163,47 @@ def save_optimised(doc, out_path, linear=True):
         doc.save(out_path, **kwargs)
 
 
-# A GUI app inherits a minimal PATH from launchd, with no /opt/homebrew/bin, so
-# Homebrew and MacPorts tools are invisible unless we go looking for them.
-EXTRA_TOOL_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
+# A GUI app inherits a minimal PATH — from launchd on macOS, and on Windows the
+# installers below often do not touch PATH at all — so look in the usual places.
+WINDOWS = sys.platform == "win32"
+
+EXTRA_TOOL_DIRS = [
+    "/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin",
+] if not WINDOWS else [
+    r"C:\Program Files\gs",
+    r"C:\Program Files\qpdf\bin",
+    r"C:\Program Files\Tesseract-OCR",
+    r"C:\Program Files\LibreOffice\program",
+    r"C:\Program Files (x86)\LibreOffice\program",
+]
+
+# Ghostscript ships as gswin64c.exe on Windows, so plain "gs" never resolves.
+TOOL_ALIASES = {
+    "gs": ["gswin64c", "gswin32c", "gs"],
+    "soffice": ["soffice"],
+    "tesseract": ["tesseract"],
+    "qpdf": ["qpdf"],
+}
 
 
 def which(name):
-    found = shutil.which(name)
-    if found:
-        return found
-    for directory in EXTRA_TOOL_DIRS:
-        candidate = os.path.join(directory, name)
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
+    for candidate_name in TOOL_ALIASES.get(name, [name]):
+        found = shutil.which(candidate_name)
+        if found:
+            return found
+        for directory in EXTRA_TOOL_DIRS:
+            if not os.path.isdir(directory):
+                continue
+            # Ghostscript installs under a versioned folder: gs\gs10.03.1\bin
+            search = [directory]
+            if WINDOWS and directory.endswith("gs"):
+                search += [os.path.join(directory, entry, "bin")
+                           for entry in os.listdir(directory)]
+            for folder in search:
+                for suffix in ("", ".exe", ".com"):
+                    path = os.path.join(folder, candidate_name + suffix)
+                    if os.path.isfile(path) and os.access(path, os.X_OK):
+                        return path
     return None
 
 
@@ -829,7 +859,9 @@ def cmd_office_to_pdf(p):
     """High fidelity path — only available when LibreOffice is installed.
     The app falls back to its native converter when this reports unavailable."""
     soffice = which("soffice") or which("libreoffice")
-    for candidate in ("/Applications/LibreOffice.app/Contents/MacOS/soffice",):
+    for candidate in ("/Applications/LibreOffice.app/Contents/MacOS/soffice",
+                      r"C:\Program Files\LibreOffice\program\soffice.exe",
+                      r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"):
         if not soffice and os.path.exists(candidate):
             soffice = candidate
     if not soffice:
