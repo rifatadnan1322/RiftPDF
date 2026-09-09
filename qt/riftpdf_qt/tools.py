@@ -112,7 +112,7 @@ register(Tool("extract_images", "Extract Images", "extract_images",
               output="folder", confirm="Extract"))
 
 register(Tool("office_to_pdf", "Word to PDF", "office_to_pdf",
-              "Needs LibreOffice installed for exact layout.",
+              "Uses LibreOffice, or Microsoft Office where it is installed.",
               [Field("input", "Word document", "files", "", hint="Choose a .docx or .doc")],
               output="saveas", needs_document=False, confirm="Convert"))
 

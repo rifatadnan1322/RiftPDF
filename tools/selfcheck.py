@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+BACKSLASH = chr(92)
 sys.path.insert(0, str(ROOT / "engine"))
 
 
@@ -56,6 +57,8 @@ def main() -> int:
     print("  Built in, nothing to install")
     windows_ocr = bool(caps.get("windowsocr"))
     line("Windows OCR", f"{'yes' if windows_ocr else 'no':<5} (OCR without Tesseract)")
+    office_com = bool(caps.get("officecom"))
+    line("Microsoft Office", f"{'yes' if office_com else 'no':<5} (Word and Excel to PDF)")
 
     # --- prove compression actually works -------------------------------
     print("\n  Compression test")
@@ -155,13 +158,48 @@ def main() -> int:
         print()
         print("  OCR test               skipped, no recogniser on this machine")
 
-    working = "compression and OCR are working" if have_ocr else "compression is working"
+    # --- prove Word to PDF actually works -------------------------------
+    office_healthy = True
+    if caps.get("libreoffice") or office_com:
+        print()
+        print("  Word to PDF test")
+        # RTF, so nothing has to be installed to write the test document.
+        rtf = work / "test.rtf"
+        rtf.write_text("{RTF1ansi RiftPDF office conversion test.par}"
+                       .replace("RTF1", BACKSLASH + "rtf1")
+                       .replace("ansi", BACKSLASH + "ansi ")
+                       .replace("par}", BACKSLASH + "par}"), encoding="utf-8")
+        converted = work / "converted.pdf"
+        try:
+            outcome = engine.run_command("office_to_pdf", {"input": str(rtf),
+                                                           "output": str(converted)})
+            check = pymupdf.open(str(converted))
+            got = check[0].get_text("text").strip()
+            check.close()
+            line("converter", outcome.get("converter", "libreoffice"))
+            line("text in the PDF", f"{got[:40]!r}")
+            office_healthy = "RiftPDF" in got
+            line("round trip", "yes" if office_healthy else "NO")
+        except Exception as exc:
+            line("CONVERSION FAILED", str(exc)[:80])
+            office_healthy = False
+    else:
+        print()
+        print("  Word to PDF test       skipped, no converter on this machine")
+
+    proved = ["compression"]
+    if have_ocr:
+        proved.append("OCR")
+    if caps.get("libreoffice") or office_com:
+        proved.append("Word to PDF")
+    working = ", ".join(proved[:-1]) + " and " + proved[-1] if len(proved) > 1 else proved[0]
+    working += " are working" if len(proved) > 1 else " is working"
     print()
     print("=" * 58)
-    print(f"  RESULT: {working}" if healthy and ocr_healthy
+    print(f"  RESULT: {working}" if healthy and ocr_healthy and office_healthy
           else "  RESULT: SOMETHING IS WRONG - paste this block back")
     print()
-    return 0 if (healthy and ocr_healthy) else 1
+    return 0 if (healthy and ocr_healthy and office_healthy) else 1
 
 
 if __name__ == "__main__":

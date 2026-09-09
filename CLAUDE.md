@@ -85,6 +85,13 @@ Tesseract's writer does, so nothing is re-rendered. PyInstaller needs
 time, so nothing static points at them and they would be dropped, silently
 taking OCR with them.
 
+**Word to PDF needs no LibreOffice where Office exists.** `cmd_office_to_pdf`
+falls back to Microsoft Office over COM, driven through a PowerShell script
+rather than a COM binding, so nothing joins requirements and nothing extra has
+to survive PyInstaller. It only quits the Office application when it had no
+documents open beforehand: Word is effectively single-instance, and quitting it
+underneath a person would take their unsaved work with it.
+
 **PowerShell breaks two obvious things about a windowed .exe.** It strips the
 quotes out of an inline JSON argument before the program sees it, so
 `--command` takes plain flags instead. And it does not wait for a GUI-subsystem
@@ -94,10 +101,12 @@ which is the only way they get found.
 
 ## State
 
-macOS: complete and installed. Windows: verified on the machine itself — the
-`.exe` launches, renders, resolves its bundled engine, compresses without
-Ghostscript and does OCR without Tesseract. `docs/WINDOWS.md` records what was
-actually run and what still has not been.
+macOS: complete and installed. Windows: verified on the machine itself. The
+`.exe` launches, renders and resolves its bundled engine; 42 of the 43 engine
+commands were run there and all worked, the 43rd being macOS-only. Compression
+works without Ghostscript, OCR without Tesseract, Word and Excel conversion
+without LibreOffice, and Read Out Loud reaches Windows voices.
+`docs/WINDOWS.md` records what was actually run.
 
 Never claim a feature works without having run it in the configuration the user
 has. Three rounds of "it works for me" on the compression bug were three rounds

@@ -97,6 +97,7 @@ def selftest():
         "qpdf": bool(which("qpdf")),
         "tesseract": bool(which("tesseract")),
         "windowsocr": windows_ocr_available(),
+        "officecom": office_com_available(),
     }
 
 
@@ -856,6 +857,122 @@ def cmd_pdf_to_text(p):
     result(output=p["output"], characters=len(body))
 
 
+# Office is driven through PowerShell rather than a COM binding, so nothing
+# has to be added to requirements and nothing extra has to survive PyInstaller.
+# Windows always has PowerShell; a frozen bundle spawning it is fine, unlike
+# spawning itself.
+_OFFICE_COM_SCRIPT = r"""
+param([string]$In, [string]$Out, [string]$Kind)
+$ErrorActionPreference = "Stop"
+switch ($Kind) {
+  "word" {
+    $app = New-Object -ComObject Word.Application
+    $app.Visible = $false
+    $app.DisplayAlerts = 0
+    $before = $app.Documents.Count
+    $doc = $null
+    try {
+      $doc = $app.Documents.Open($In, $false, $true)
+      $doc.SaveAs([string]$Out, 17)
+    } finally {
+      if ($doc -ne $null) { $doc.Close(0) }
+      if ($before -eq 0) { $app.Quit() }
+    }
+  }
+  "excel" {
+    $app = New-Object -ComObject Excel.Application
+    $app.Visible = $false
+    $app.DisplayAlerts = $false
+    $before = $app.Workbooks.Count
+    $wb = $null
+    try {
+      $wb = $app.Workbooks.Open($In, 0, $true)
+      $wb.ExportAsFixedFormat(0, $Out)
+    } finally {
+      if ($wb -ne $null) { $wb.Close($false) }
+      if ($before -eq 0) { $app.Quit() }
+    }
+  }
+  "powerpoint" {
+    $app = New-Object -ComObject PowerPoint.Application
+    $before = $app.Presentations.Count
+    $pres = $null
+    try {
+      $pres = $app.Presentations.Open($In, $true, $false, $false)
+      $pres.SaveAs($Out, 32)
+    } finally {
+      if ($pres -ne $null) { $pres.Close() }
+      if ($before -eq 0) { $app.Quit() }
+    }
+  }
+  default { throw "unsupported kind" }
+}
+"""
+
+_OFFICE_COM_KINDS = {
+    "word": (".doc", ".docx", ".docm", ".rtf", ".odt", ".txt", ".htm", ".html"),
+    "excel": (".xls", ".xlsx", ".xlsm", ".csv", ".ods"),
+    "powerpoint": (".ppt", ".pptx", ".pptm", ".odp"),
+}
+
+
+def office_com_kind(path):
+    suffix = os.path.splitext(path)[1].lower()
+    for kind, suffixes in _OFFICE_COM_KINDS.items():
+        if suffix in suffixes:
+            return kind
+    return None
+
+
+def office_com_available(kind=None):
+    """Whether Microsoft Office is here to be driven over COM.
+
+    Where Office is already installed this costs nothing and needs nothing
+    fetched, which is the whole reason to prefer it over telling someone to go
+    and install a second office suite.
+    """
+    if not WINDOWS:
+        return False
+    wanted = {"word": "Word.Application", "excel": "Excel.Application",
+              "powerpoint": "PowerPoint.Application"}
+    progids = [wanted[kind]] if kind in wanted else list(wanted.values())
+    try:
+        import winreg
+    except Exception:
+        return False
+    for progid in progids:
+        try:
+            winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, progid))
+            return True
+        except OSError:
+            continue
+    return False
+
+
+def office_com_convert(source, target):
+    """Convert through Office itself. Returns nothing; raises on failure."""
+    kind = office_com_kind(source)
+    if not kind:
+        raise EngineError(f"Office cannot convert {os.path.splitext(source)[1]} files.")
+    if not office_com_available(kind):
+        raise EngineError("LIBREOFFICE_UNAVAILABLE")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        script = os.path.join(tmp, "convert.ps1")
+        with open(script, "w", encoding="utf-8") as handle:
+            handle.write(_OFFICE_COM_SCRIPT)
+        finished = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+             "-File", script, "-In", os.path.abspath(source),
+             "-Out", os.path.abspath(target), "-Kind", kind],
+            capture_output=True, timeout=600, text=True)
+
+    if finished.returncode != 0 or not os.path.exists(target):
+        detail = (finished.stderr or finished.stdout or "").strip().splitlines()
+        raise EngineError(f"{kind.title()} could not convert this file"
+                          + (f": {detail[-1][:200]}" if detail else "."))
+
+
 def cmd_office_to_pdf(p):
     """High fidelity path — only available when LibreOffice is installed.
     The app falls back to its native converter when this reports unavailable."""
@@ -866,6 +983,13 @@ def cmd_office_to_pdf(p):
         if not soffice and os.path.exists(candidate):
             soffice = candidate
     if not soffice:
+        # No LibreOffice. On Windows, Office itself will do it if it is here,
+        # which saves telling someone to install a whole second office suite.
+        if WINDOWS and office_com_available(office_com_kind(p["input"])):
+            progress(0.2, "Converting with Microsoft Office")
+            office_com_convert(p["input"], p["output"])
+            result(output=p["output"], converter="office")
+            return
         raise EngineError("LIBREOFFICE_UNAVAILABLE")
     outdir = os.path.dirname(p["output"]) or "."
     progress(0.2, "Converting with LibreOffice")
@@ -1917,33 +2041,33 @@ def weld_text_layer(page, words, scale):
 
     Render mode 3 is invisible but selectable, searchable and copyable, which
     is the whole point of OCR. The page's own appearance is left exactly as it
-    was — unlike the Tesseract path, which rasterises each page into a fresh
+    was -- unlike the Tesseract path, which rasterises each page into a fresh
     PDF and so throws away whatever quality the original had.
+
+    Each word is scaled horizontally to the width the recogniser measured, the
+    same way cmd_ocr_layer does it: a morph matrix stretches the glyphs
+    sideways without touching their height, so selecting a word highlights
+    that word and not half of its neighbour.
     """
     rotation = page.rotation
     derotate = page.derotation_matrix
     added = 0
     for text, x, y, width, height in words:
-        box_width = width * scale
-        box_height = height * scale
-        if box_width <= 0 or box_height <= 0:
-            continue
-
-        size = box_height * 0.8
-        # Stretch the type to the width the recogniser measured, so that
-        # selecting a word highlights that word and not half of its neighbour.
-        measured = pymupdf.get_text_length(text, fontname="helv", fontsize=size)
-        if measured > 0:
-            size = max(1.0, min(size * (box_width / measured), box_height * 3))
+        box_width = max(1.0, width * scale)
+        box_height = max(1.0, height * scale)
+        size = box_height * 0.86
+        length = pymupdf.get_text_length(text, fontname="helv", fontsize=size) or 1
 
         # Pixels are in the page as displayed; insert_text works in the page's
         # own unrotated space, so send the point back through the rotation.
-        point = pymupdf.Point(x * scale, (y + height) * scale - box_height * 0.18)
+        origin = pymupdf.Point(x * scale, (y + height) * scale - box_height * 0.18)
         if rotation:
-            point = point * derotate
+            origin = origin * derotate
         try:
-            page.insert_text(point, text, fontname="helv", fontsize=size,
-                             render_mode=3, rotate=rotation)
+            page.insert_text(origin, text, fontname="helv", fontsize=size,
+                             render_mode=3,                    # invisible
+                             rotate=rotation,
+                             morph=(origin, pymupdf.Matrix(box_width / length, 0, 0, 1, 0, 0)))
             added += 1
         except Exception:
             # One unrenderable glyph must not cost the rest of the page.

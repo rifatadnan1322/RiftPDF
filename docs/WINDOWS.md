@@ -27,6 +27,18 @@ windowsocr  true
   Windows. Run inside the packaged .exe, not just from source: a scanned page
   came back with 16 words and 148 characters, and `Acme` and `1240` are both
   findable. A page that already had real text was copied through untouched.
+- **Word and Excel to PDF, with no LibreOffice present.** Through Microsoft
+  Office over COM, also run inside the packaged .exe. A .docx came back as one
+  page with six embedded fonts, its table and bullets intact.
+- **Read Out Loud.** Qt picks the `winrt` engine and finds three Windows
+  voices — David, Zira and Mark — and reaches the Speaking state on real text.
+  Synthesis is confirmed; whether sound leaves the speakers is not something a
+  headless check can see.
+- **Redaction removes the bytes.** Not merely a black box drawn on top: after
+  redacting, the target string is absent from the decompressed object streams
+  while other text on the same page is still there.
+- **Every command.** 42 of the engine's 43 commands were run here and all of
+  them worked. The 43rd, `merge_annotations`, is macOS-only by design.
 
 ## OCR without installing anything
 
@@ -102,17 +114,18 @@ capabilities without opening a window at all.
 It builds its own test documents and proves both compression and OCR. The two
 things most likely to be quietly broken are the two things it checks.
 
-## Not yet verified on Windows
-
-- **Read Out Loud.** Qt's text-to-speech should reach Windows SAPI voices.
-  Nobody has heard it do so. Do not describe it as working.
-
 ## Known missing on Windows
 
-- **Word to PDF** needs LibreOffice. macOS falls back to AppKit's typesetter;
-  Windows has no equivalent. Microsoft Word via COM would work where Office is
-  installed. Not implemented. It degrades honestly — the engine reports the
-  capability as absent rather than failing at the point of use.
+- **Ghostscript and qpdf** are absent, and nothing here needs them. Compression
+  reaches its target without Ghostscript, and `linearize` works without qpdf.
+- **OCR languages** are limited to the packs Windows has. This machine has
+  `en-US` and `fr-CA`. Asking for one that is not installed raises an error
+  naming what is, rather than quietly recognising in the wrong language. More
+  can be added under Settings > Time & language > Language & region.
+- **LibreOffice** is absent. Office covers Word, Excel and PowerPoint over COM,
+  so the only gap left is a machine with neither Office nor LibreOffice, where
+  the engine reports the capability as absent rather than failing at the point
+  of use.
 
 ## Rebuilding
 

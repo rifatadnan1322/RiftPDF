@@ -403,8 +403,12 @@ class MainWindow(QMainWindow):
             bits.append("Windows OCR")
         else:
             bits.append("no OCR engine")
-        if not caps.get("libreoffice"):
-            bits.append("no LibreOffice")
+        if caps.get("libreoffice"):
+            bits.append("LibreOffice")
+        elif caps.get("officecom"):
+            bits.append("Microsoft Office")
+        else:
+            bits.append("no Office converter")
         self.statusBar().showMessage(" · ".join(bits), 8000)
 
     def about(self):
@@ -417,7 +421,16 @@ class MainWindow(QMainWindow):
             f"<p style='color:#66666E'>MuPDF {caps.get('pymupdf')} · "
             f"pikepdf {caps.get('pikepdf')}<br>"
             f"OCR: {_ocr_description(caps)}<br>"
-            f"LibreOffice: {'yes' if caps.get('libreoffice') else 'not installed'}</p>")
+            f"Word to PDF: {_office_description(caps)}</p>")
+
+
+def _office_description(caps) -> str:
+    """Name the converter that will actually be used."""
+    if caps.get("libreoffice"):
+        return "LibreOffice"
+    if caps.get("officecom"):
+        return "Microsoft Office, already installed"
+    return "not available"
 
 
 def _ocr_description(caps) -> str:
