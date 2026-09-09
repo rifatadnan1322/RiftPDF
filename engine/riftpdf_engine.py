@@ -224,6 +224,29 @@ PRESETS = {
 }
 
 
+def _highest_image_dpi(doc):
+    """Effective resolution of the highest-resolution image, as placed on the
+    page. An image is only worth resampling relative to the size it is drawn."""
+    best = 0
+    seen = set()
+    for pno in range(doc.page_count):
+        page = doc[pno]
+        for info in doc.get_page_images(pno, full=True):
+            xref, width, height = info[0], info[2], info[3]
+            if xref in seen or not width or not height:
+                continue
+            seen.add(xref)
+            try:
+                rects = page.get_image_rects(xref)
+            except Exception:
+                rects = []
+            for rect in rects:
+                if rect.width > 1 and rect.height > 1:
+                    best = max(best, width / (rect.width / 72.0),
+                               height / (rect.height / 72.0))
+    return int(best)
+
+
 def _recompress_images(doc, target_dpi, quality, grayscale=False, report=None):
     """Downsample and re-encode the raster images in the document.
 
@@ -234,22 +257,44 @@ def _recompress_images(doc, target_dpi, quality, grayscale=False, report=None):
     """
     if report:
         report(0.15, "Recompressing images")
-    try:
+    target = max(16, int(target_dpi))
+
+    def rewrite(dpi):
         doc.rewrite_images(
-            dpi_threshold=int(target_dpi),
-            dpi_target=int(target_dpi),
+            dpi_threshold=dpi + 1,
+            dpi_target=dpi,
             quality=int(quality),
             lossy=True, lossless=True, bitonal=True, color=True, gray=True,
             set_to_gray=bool(grayscale),
         )
+
+    # An image is only eligible when its resolution exceeds the threshold, so a
+    # scan already at the preset's DPI came through untouched and the file
+    # barely moved. Cap the target just under the document's own resolution so
+    # the pass always runs and the preset's quality setting is what decides the
+    # size — rather than stepping the DPI down, which made light presets come
+    # out smaller than aggressive ones.
+    highest = _highest_image_dpi(doc)
+    # -2 not -1: eligibility is a strict "greater than", so the threshold
+    # (effective + 1) has to land below the document's own resolution.
+    effective = target if highest <= 0 else min(target, max(36, highest - 2))
+
+    try:
+        rewrite(effective)
     except Exception as exc:
-        # Surface it: without this pass the file barely shrinks, and that used
-        # to fail silently for months.
+        # Record it rather than swallowing: without this pass a file with no
+        # Ghostscript available will barely shrink at all.
+        _recompress_images.last_error = str(exc)
         emit({"type": "progress", "value": 0.5,
               "message": f"Image recompression unavailable: {exc}"})
+        return 0
+    _recompress_images.last_error = None
     if report:
         report(0.9, "Recompressing images")
     return 0
+
+
+_recompress_images.last_error = None
 
 
 def _compress_pass(src, out, dpi, quality, grayscale, gs_preset,
@@ -449,9 +494,20 @@ def cmd_compress(p):
         flatten=bool(p.get("flattenAnnotations")),
         use_gs=p.get("useGhostscript", True),
         report=lambda f, m: progress(f, m))
+    ratio = round(100.0 * (before - after) / before, 1) if before else 0.0
+    note = None
+    if ratio < 2.0:
+        if _recompress_images.last_error:
+            note = ("Image recompression could not run on this machine: "
+                    f"{_recompress_images.last_error}")
+        else:
+            note = ("This document's images are already at or below the "
+                    f"resolution this setting targets ({dpi} dpi), so there was "
+                    "nothing to resample. Choose a stronger setting, or use "
+                    "\u201cPick a size\u201d to say how small it needs to be.")
     result(before=before, after=after, beforeHuman=human(before), afterHuman=human(after),
-           ratio=round(100.0 * (before - after) / before, 1) if before else 0.0,
-           output=out)
+           ratio=ratio, imageError=_recompress_images.last_error,
+           note=note, output=out)
 
 
 # --------------------------------------------------------------------------

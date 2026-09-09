@@ -86,6 +86,9 @@ extension AppModel {
                 return ("Already about as small as it gets",
                         "\(before) → \(after). Try a stronger preset for more.")
             }
+            if let note = res["note"] as? String, ratio < 2 {
+                return ("Nothing to compress", note)
+            }
             return ("Shrunk by \(Int(ratio))%",
                     "\(before) → \(after)" + (inPlace ? " — press ⌘S to write it to disk" : ""))
         }
