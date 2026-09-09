@@ -7,7 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import QTimer, Qt, QSize
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog,
                                QLabel, QLineEdit, QMainWindow, QMessageBox,
@@ -431,4 +431,23 @@ def main() -> int:
         if argument.lower().endswith(".pdf") and os.path.exists(argument):
             window.load(argument)
             break
+
+    # RIFTPDF_QT_SNAPSHOT=/path.png writes a picture of the window and exits.
+    # A widget can always grab itself, so this verifies the interface on a
+    # machine you cannot see — which is how the Windows build gets checked.
+    snapshot = os.environ.get("RIFTPDF_QT_SNAPSHOT")
+    if snapshot:
+        delay = int(float(os.environ.get("RIFTPDF_QT_SNAPSHOT_DELAY", "3")) * 1000)
+
+        def capture():
+            path = Path(snapshot)
+            ok = window.grab().save(str(path))
+            print(f"snapshot {'written' if ok else 'FAILED'}: {path}", file=sys.stderr)
+            print(f"window {window.width()}x{window.height()} visible={window.isVisible()}",
+                  file=sys.stderr)
+            if os.environ.get("RIFTPDF_QT_SNAPSHOT_QUIT", "1") == "1":
+                app.quit()
+
+        QTimer.singleShot(delay, capture)
+
     return app.exec()
