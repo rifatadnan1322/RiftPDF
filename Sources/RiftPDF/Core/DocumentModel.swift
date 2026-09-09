@@ -20,11 +20,36 @@ final class PDFDoc: ObservableObject, Identifiable {
     let undoManager = UndoManager()
     var password: String?
 
+    /// A file on disk whose bytes are exactly this document's current content.
+    ///
+    /// PDFKit's writer is lossy about file *size*: it duplicates image objects
+    /// that were shared between pages and stores streams far less compressed.
+    /// On a scanned page that inflates the file by over 150%, which silently
+    /// undoes everything the engine just did. So whenever the bytes on disk are
+    /// authoritative, we copy them rather than asking PDFKit to write them out.
+    /// Any in-memory edit clears this, because then PDFKit holds changes the
+    /// file does not.
+    private(set) var backingFileURL: URL?
+
+    /// The engine's most recent output for this document. Unlike
+    /// `backingFileURL` this survives editing, because after PDFKit rewrites
+    /// the file we can still transplant the markup back onto these
+    /// well-compressed bytes.
+    private(set) var optimisedSourceURL: URL?
+
+    private static let backingDirectory: URL = {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("riftpdf-backing", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
     var displayName: String { url?.displayName ?? "Untitled" }
 
     init(document: PDFDocument, url: URL?) {
         self.document = document
         self.url = url
+        self.backingFileURL = url          // freshly opened: the file is the truth
         self.pageCount = document.pageCount
         undoManager.levelsOfUndo = 40
         undoManager.groupsByEvent = false
@@ -41,8 +66,35 @@ final class PDFDoc: ObservableObject, Identifiable {
 
     private func touch() {
         isDirty = true
+        invalidateBackingFile()
         pageCount = document.pageCount
         structureVersion &+= 1
+    }
+
+    /// The file on disk now matches what is in memory (used after the saved
+    /// file has been re-optimised behind the scenes).
+    func noteSavedBytes(at file: URL) {
+        backingFileURL = file
+        isDirty = false
+    }
+
+    /// Called whenever the in-memory document diverges from any file.
+    func invalidateBackingFile() {
+        backingFileURL = nil
+    }
+
+    /// Takes ownership of a file the engine produced, so its exact bytes are
+    /// what gets written on save.
+    func adoptBackingFile(_ file: URL) {
+        let destination = Self.backingDirectory
+            .appendingPathComponent("\(id.uuidString)-\(UUID().uuidString).pdf")
+        do {
+            try FileManager.default.moveItem(at: file, to: destination)
+            backingFileURL = destination
+            optimisedSourceURL = destination
+        } catch {
+            backingFileURL = nil      // fall back to PDFKit rather than lie
+        }
     }
 
     func registerUndo(_ name: String, _ action: @escaping @MainActor (PDFDoc) -> Void) {
@@ -202,22 +254,35 @@ final class PDFDoc: ObservableObject, Identifiable {
     // MARK: - whole document replacement (engine round trips)
 
     /// Swap in a document the engine produced, keeping undo intact.
-    func replaceDocument(with new: PDFDocument, actionName: String) {
+    func replaceDocument(with new: PDFDocument, actionName: String,
+                         backingFile: URL? = nil) {
         let snapshot = document.dataRepresentation()
+        let previousBacking = backingFileURL
         perform(actionName) {
             document = new
             registerUndo(actionName) { target in
                 if let snapshot, let restored = PDFDocument(data: snapshot) {
                     target.document = restored
                     target.afterExternalMutation()
+                    target.backingFileURL = previousBacking
                 }
             }
         }
+        // set after the undo registration, which clears it via afterExternalMutation
+        if let backingFile {
+            adoptBackingFile(backingFile)
+        } else {
+            invalidateBackingFile()
+        }
+        isDirty = true
+        pageCount = new.pageCount
+        structureVersion &+= 1
         currentPage = min(currentPage, max(0, new.pageCount - 1))
     }
 
     func afterExternalMutation() {
         isDirty = true
+        invalidateBackingFile()
         pageCount = document.pageCount
         structureVersion &+= 1
     }
@@ -230,11 +295,26 @@ final class PDFDoc: ObservableObject, Identifiable {
             throw NSError(domain: "RiftPDF", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "No destination for this document."])
         }
-        guard document.write(to: destination) else {
-            throw NSError(domain: "RiftPDF", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: "Could not write to \(destination.lastPathComponent). Check folder permissions."])
+        if let backing = backingFileURL,
+           FileManager.default.fileExists(atPath: backing.path),
+           backing.standardizedFileURL != destination.standardizedFileURL {
+            do {
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    try FileManager.default.removeItem(at: destination)
+                }
+                try FileManager.default.copyItem(at: backing, to: destination)
+            } catch {
+                throw NSError(domain: "RiftPDF", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey: "Could not write to \(destination.lastPathComponent): \(error.localizedDescription)"])
+            }
+        } else if backingFileURL?.standardizedFileURL != destination.standardizedFileURL {
+            guard document.write(to: destination) else {
+                throw NSError(domain: "RiftPDF", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey: "Could not write to \(destination.lastPathComponent). Check folder permissions."])
+            }
         }
         url = destination
+        backingFileURL = destination
         isDirty = false
         return destination
     }
@@ -244,6 +324,13 @@ final class PDFDoc: ObservableObject, Identifiable {
     func stageToTemporaryFile() throws -> URL {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("riftpdf-stage-\(UUID().uuidString).pdf")
+        // Prefer the real file: handing the engine a PDFKit rewrite would make
+        // it compress an already-inflated copy.
+        if let backing = backingFileURL,
+           FileManager.default.fileExists(atPath: backing.path),
+           (try? FileManager.default.copyItem(at: backing, to: temp)) != nil {
+            return temp
+        }
         guard document.write(to: temp) else {
             throw NSError(domain: "RiftPDF", code: 3,
                           userInfo: [NSLocalizedDescriptionKey: "Could not prepare the document for processing."])

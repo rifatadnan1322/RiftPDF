@@ -1819,6 +1819,55 @@ def cmd_ocr(p):
            pagesCopied=len(pages) - recognised, characters=characters)
 
 
+def cmd_merge_annotations(p):
+    """Put the markup from one file onto the well-compressed bytes of another.
+
+    PDFKit re-encodes images when it writes a document, which can more than
+    double a scanned page. So the app keeps the engine's output and, on save,
+    transplants only the annotations onto it rather than accepting PDFKit's
+    whole rewrite.
+    """
+    base, overlay, out = p["base"], p["overlay"], p["output"]
+
+    with pikepdf.open(overlay) as source:
+        if len(source.pages) == 0:
+            raise EngineError("The overlay document has no pages.")
+        # Form fields live in both the page annotations and the AcroForm field
+        # tree; splitting them across two files would break the form, so leave
+        # these documents to PDFKit.
+        if "/AcroForm" in source.Root:
+            raise EngineError("ACROFORM_PRESENT")
+        page_count = len(source.pages)
+
+    with pikepdf.open(base) as target:
+        if len(target.pages) != page_count:
+            raise EngineError("PAGE_COUNT_MISMATCH")
+
+    with pikepdf.open(base) as target, pikepdf.open(overlay) as source:
+        moved = 0
+        for tpage, spage in zip(target.pages, source.pages):
+            annots = spage.get("/Annots")
+            if annots is None or len(annots) == 0:
+                if "/Annots" in tpage:
+                    del tpage["/Annots"]
+                continue
+            copied = [target.copy_foreign(a) for a in annots]
+            tpage["/Annots"] = target.make_indirect(pikepdf.Array(copied))
+            moved += len(copied)
+        target.save(out, linearize=False)
+
+    # never hand back something that lost markup
+    check = pymupdf.open(out)
+    found = sum(len(list(page.annots())) for page in check)
+    pages = check.page_count
+    check.close()
+    if found != moved:
+        raise EngineError("Annotations did not survive the transplant.")
+
+    result(output=out, annotations=moved, pageCount=pages,
+           size=os.path.getsize(out))
+
+
 # --------------------------------------------------------------------------
 # dispatch
 # --------------------------------------------------------------------------
@@ -1864,6 +1913,7 @@ COMMANDS = {
     "header_footer": cmd_header_footer,
     "tables_to_excel": cmd_tables_to_excel,
     "audit_space": cmd_audit_space,
+    "merge_annotations": cmd_merge_annotations,
     "ocr": cmd_ocr,
 }
 

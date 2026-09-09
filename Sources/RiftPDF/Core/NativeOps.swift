@@ -251,7 +251,9 @@ extension AppModel {
                 document: snapshot, pageIndices: pages, languages: languages, fast: fast
             ) { value, message in task.update(value, message) }
 
-            guard !words.isEmpty else { return (PDFDocument(), 0) }
+            guard !words.isEmpty else {
+                return (PDFDocument(), 0, URL(fileURLWithPath: "/dev/null"))
+            }
 
             let input = try await MainActor.run { try doc.stageToTemporaryFile() }
             let output = FileManager.default.temporaryDirectory
@@ -266,14 +268,15 @@ extension AppModel {
                 throw Engine.Failure(message: "The OCR text layer could not be written.", detail: nil)
             }
             try? FileManager.default.removeItem(at: input)
-            return (produced, words.count)
-        } onSuccess: { [weak self] (produced: PDFDocument, count: Int) in
+            return (produced, words.count, output)
+        } onSuccess: { [weak self] (produced: PDFDocument, count: Int, output: URL) in
             guard let self else { return }
             if count == 0 {
                 self.warn("No text recognised", "These pages look like they have no readable text.")
                 return
             }
-            doc.replaceDocument(with: produced, actionName: "OCR")
+            doc.replaceDocument(with: produced, actionName: "OCR",
+                                backingFile: output)
             self.success("Text layer added", "\(count) lines recognised — the document is now searchable.")
         }
     }
@@ -320,9 +323,10 @@ extension AppModel {
                 throw Engine.Failure(message: "Could not place the images.", detail: nil)
             }
             try? FileManager.default.removeItem(at: input)
-            return produced
-        } onSuccess: { produced in
-            doc.replaceDocument(with: produced, actionName: "Place Images")
+            return (produced, output)
+        } onSuccess: { (produced: PDFDocument, output: URL) in
+            doc.replaceDocument(with: produced, actionName: "Place Images",
+                                backingFile: output)
             completion?()
         }
     }

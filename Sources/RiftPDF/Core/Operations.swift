@@ -31,10 +31,11 @@ extension AppModel {
                                      detail: output.path)
             }
             try? FileManager.default.removeItem(at: input)
-            return (produced, res)
-        } onSuccess: { [weak self] (produced: PDFDocument, res: [String: Any]) in
+            return (produced, res, output)
+        } onSuccess: { [weak self] (produced: PDFDocument, res: [String: Any], output: URL) in
             guard let self else { return }
-            doc.replaceDocument(with: produced, actionName: actionName ?? title)
+            doc.replaceDocument(with: produced, actionName: actionName ?? title,
+                                backingFile: output)
             let (headline, detail) = summary(res)
             self.success(headline, detail)
         }
@@ -140,7 +141,10 @@ extension AppModel {
             return (res, produced, output)
         } onSuccess: { [weak self] (res: [String: Any], produced: PDFDocument?, output: URL) in
             guard let self else { return }
-            if let produced { doc.replaceDocument(with: produced, actionName: "Compress") }
+            if let produced {
+                doc.replaceDocument(with: produced, actionName: "Compress",
+                                    backingFile: output)
+            }
 
             let hit = res["hitTarget"] as? Bool ?? false
             let before = res["beforeHuman"] as? String ?? ""

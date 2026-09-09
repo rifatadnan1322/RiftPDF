@@ -104,7 +104,8 @@ final class AppModel: ObservableObject {
     /// Runs an async job with a progress row in the toolbar.
     func job<T>(_ title: String,
                 _ body: @escaping (TaskProgress) async throws -> T,
-                onSuccess: @escaping (T) -> Void) {
+                onSuccess: @escaping (T) -> Void,
+                onFailure: ((Error) -> Void)? = nil) {
         let task = TaskProgress(title: title)
         tasks.append(task)
         Task {
@@ -116,7 +117,11 @@ final class AppModel: ObservableObject {
             } catch {
                 task.finished = true
                 tasks.removeAll { $0.id == task.id }
-                report(error, context: "\(title) failed")
+                if let onFailure {
+                    onFailure(error)
+                } else {
+                    report(error, context: "\(title) failed")
+                }
             }
         }
     }
@@ -199,10 +204,58 @@ final class AppModel: ObservableObject {
     func save(_ doc: PDFDoc) {
         guard doc.url != nil else { return saveAs(doc) }
         withPlacedImagesBurnedIn(doc) {
+            let rewritten = doc.backingFileURL == nil && doc.optimisedSourceURL != nil
             do {
                 let out = try doc.save()
-                self.success("Saved", out.lastPathComponent)
+                if rewritten {
+                    self.reclaimSizeAfterSave(doc, saved: out)
+                } else {
+                    self.success("Saved", out.lastPathComponent)
+                }
             } catch { self.report(error, context: "Save failed") }
+        }
+    }
+
+    /// PDFKit re-encodes images whenever it writes a document, which can more
+    /// than double a compressed scan. When we still hold the engine's output,
+    /// move the markup onto those bytes instead of keeping PDFKit's rewrite.
+    /// The correct file is already on disk, so any failure here is harmless.
+    private func reclaimSizeAfterSave(_ doc: PDFDoc, saved: URL) {
+        guard let source = doc.optimisedSourceURL,
+              FileManager.default.fileExists(atPath: source.path) else {
+            success("Saved", saved.lastPathComponent)
+            return
+        }
+        let sizeBefore = (try? FileManager.default.attributesOfItem(atPath: saved.path)[.size] as? Int) ?? nil
+
+        job("Optimising") { task in
+            let merged = FileManager.default.temporaryDirectory
+                .appendingPathComponent("riftpdf-merge-\(UUID().uuidString).pdf")
+            task.update(0.3, "Restoring compression")
+            _ = try await Engine.shared.run("merge_annotations", [
+                "base": source.path, "overlay": saved.path, "output": merged.path,
+            ]) { value, message in task.update(value, message) }
+            let mergedSize = (try? FileManager.default.attributesOfItem(atPath: merged.path)[.size] as? Int) ?? nil
+            return (merged, mergedSize)
+        } onSuccess: { [weak self] (merged: URL, mergedSize: Int?) in
+            guard let self else { return }
+            defer { try? FileManager.default.removeItem(at: merged) }
+            guard let mergedSize, let sizeBefore, mergedSize < sizeBefore else {
+                self.success("Saved", saved.lastPathComponent)
+                return
+            }
+            do {
+                _ = try FileManager.default.replaceItemAt(saved, withItemAt: merged)
+                doc.noteSavedBytes(at: saved)
+                self.success("Saved · \(formatBytes(sizeBefore)) → \(formatBytes(mergedSize))",
+                             saved.lastPathComponent)
+            } catch {
+                self.success("Saved", saved.lastPathComponent)
+            }
+        } onFailure: { [weak self] _ in
+            // page count changed, or the document has form fields — keep
+            // PDFKit's file, which is correct, just larger
+            self?.success("Saved", saved.lastPathComponent)
         }
     }
 
