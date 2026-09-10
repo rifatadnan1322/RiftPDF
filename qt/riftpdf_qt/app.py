@@ -22,6 +22,9 @@ from .tools import TOOLS, ToolDialog, build_payload
 from .viewer import DocumentView, SearchBar
 
 APP_NAME = "RiftPDF"
+# One source of truth: the installer and the About box both read this, so a
+# release cannot go out claiming two different versions of itself.
+APP_VERSION = "1.1.0"
 
 
 class ReportDialog(QDialog):
@@ -415,7 +418,7 @@ class MainWindow(QMainWindow):
         caps = bridge.capabilities()
         QMessageBox.about(
             self, f"About {APP_NAME}",
-            f"<h3>{APP_NAME}</h3>"
+            f"<h3>{APP_NAME} {APP_VERSION}</h3>"
             "<p>Everything you need to do to a PDF, on your own machine. "
             "Nothing is uploaded anywhere.</p>"
             f"<p style='color:#66666E'>MuPDF {caps.get('pymupdf')} · "

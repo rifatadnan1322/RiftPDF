@@ -9,9 +9,10 @@ There are two applications here, sharing one PDF engine:
 |---|---|---|
 | Interface | Swift + SwiftUI + PDFKit | Python + Qt (PySide6) |
 | Live markup tools | yes | not yet — see below |
-| All 40 engine operations | yes | yes |
-| Read out loud | AVSpeechSynthesizer | Qt TextToSpeech |
-| OCR | Apple Vision | Tesseract |
+| All 43 engine operations | yes | yes |
+| Read out loud | AVSpeechSynthesizer | Qt TextToSpeech, Windows voices |
+| OCR | Apple Vision | built into Windows, or Tesseract |
+| Word to PDF | AppKit, or LibreOffice | Microsoft Office, or LibreOffice |
 
 The engine — compression, conversion, redaction, metadata, OCR, accessibility,
 everything that actually touches a PDF — is one shared Python module used by
@@ -26,11 +27,17 @@ behind the Desktop-access prompt, which blocks the app's own bundled engine.
 The first launch may need a right-click → *Open* (ad-hoc signature, not a paid
 Developer ID).
 
-**Windows** — download `RiftPDF-windows.zip` from [Releases](../../releases),
-unzip anywhere, run `RiftPDF.exe`. SmartScreen will warn about an unsigned
-application: *More info* → *Run anyway*. For OCR, install
-[Tesseract](https://github.com/UB-Mannheim/tesseract/wiki); everything else
-works without it.
+**Windows** — download `RiftPDF-<version>-Setup.exe` from
+[Releases](../../releases) and run it. No administrator password is needed.
+SmartScreen will warn about an unsigned application: *More info* →
+*Run anyway*. There is a portable zip on the same page for anyone who would
+rather not install anything.
+
+Nothing else has to be fetched. OCR uses the recogniser built into Windows 10
+and 11, and Word or Excel conversion uses Microsoft Office if you have it.
+Tesseract and LibreOffice are still used in preference where they are present,
+but neither is required. [docs/INSTALL.md](docs/INSTALL.md) has the detail,
+including how to check the download's SHA-256.
 
 **From source (any platform)**
 
