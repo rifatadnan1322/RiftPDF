@@ -1,0 +1,80 @@
+name: Verify
+
+# The engine had 43 commands that worked on the machine they were written on
+# and had never been run anywhere else, and docs/WINDOWS.md spent a while
+# describing a Windows build nobody had actually run. Checking that by hand
+# finds real problems once and then rots. This runs on every push.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: qt/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r qt/requirements.txt
+
+      - name: What this runner can do
+        # Printed whether or not anything fails, because "which optional tools
+        # were present" is the first question asked about any failure here.
+        run: python engine/riftpdf_engine.py --selftest
+
+      - name: Compression, OCR and Word to PDF
+        # Builds its own documents and proves the results, rather than only
+        # checking that nothing raised.
+        run: python tools/selfcheck.py
+
+      - name: Every engine command
+        run: python tools/command_sweep.py
+
+  build:
+    name: Windows package
+    runs-on: windows-latest
+    # No point packaging a build whose engine does not work.
+    needs: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: qt/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r qt/requirements.txt pyinstaller
+
+      - name: Build the application
+        run: python qt/build_windows.py
+
+      - name: Ask the packaged build what it can do
+        # A frozen bundle is the configuration users actually get, and it can
+        # fail where the source tree does not -- winsdk's namespaces are
+        # extension modules loaded at run time, so a missing --collect-all
+        # would drop OCR here and nowhere else.
+        run: |
+          Start-Process .\dist\RiftPDF\RiftPDF.exe -ArgumentList "--command","selftest" -Wait -NoNewWindow
+        shell: pwsh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RiftPDF-windows-unpackaged
+          path: dist/RiftPDF
+          retention-days: 7
