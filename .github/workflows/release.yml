@@ -85,4 +85,8 @@ jobs:
             packages/**/*.exe
             packages/**/*.zip
             packages/**/SHA256SUMS.txt
-          generate_release_notes: true
+          # Deliberately not generate_release_notes. Release notes here are
+          # written by hand -- what changed, what was actually verified, what
+          # SmartScreen will say -- and running this against a release that
+          # already has them would replace that with a list of commit titles.
+          # Attaching files to an existing release must not rewrite it.
