@@ -21,6 +21,21 @@ mkdir -p "$APP/Contents/Resources/engine"
 cp engine/riftpdf_engine.py engine/requirements.txt "$APP/Contents/Resources/engine/"
 if [ -d engine/.venv ]; then
   cp -R engine/.venv "$APP/Contents/Resources/engine/.venv"
+
+  # pip is needed to build this environment and never to run it, but copying
+  # the venv wholesale shipped all 10.8 MB of it inside the app — including
+  # pip's vendored Windows .exe launchers, sitting inside a macOS bundle.
+  # Nothing here installs anything at run time.
+  VENV="$APP/Contents/Resources/engine/.venv"
+  SITE=$(find "$VENV/lib" -maxdepth 2 -type d -name site-packages | head -1)
+  if [ -n "$SITE" ]; then
+    rm -rf "$SITE"/pip "$SITE"/pip-*.dist-info \
+           "$SITE"/wheel "$SITE"/wheel-*.dist-info
+  fi
+  rm -f "$VENV"/bin/pip "$VENV"/bin/pip3 "$VENV"/bin/pip3.* "$VENV"/bin/wheel
+
+  # setuptools is deliberately left alone: some libraries still import
+  # pkg_resources at run time, and a few megabytes is not worth that risk.
 else
   echo "  ! engine/.venv missing — run ./setup.sh first"
 fi
