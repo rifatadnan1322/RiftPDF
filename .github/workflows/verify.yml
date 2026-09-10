@@ -16,9 +16,9 @@ jobs:
     name: Windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -48,9 +48,9 @@ jobs:
     # No point packaging a build whose engine does not work.
     needs: windows
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -73,7 +73,7 @@ jobs:
           Start-Process .\dist\RiftPDF\RiftPDF.exe -ArgumentList "--command","selftest" -Wait -NoNewWindow
         shell: pwsh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: RiftPDF-windows-unpackaged
           path: dist/RiftPDF

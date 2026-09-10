@@ -94,6 +94,31 @@ message. Verified, not assumed. A JSON payload is still accepted inline or as
 Results are printed to **stderr**, because a windowed build has no stdout
 worth the name.
 
+## What runs on every push
+
+`.github/workflows/verify.yml` runs on a `windows-latest` runner: the
+capability report, `tools/selfcheck.py`, `tools/command_sweep.py`, then a
+PyInstaller build which is asked `--command selftest` afterwards. That last
+step is the point — a frozen bundle can fail where the source tree does not,
+and dropping `--collect-all winsdk` would break OCR in the package and nowhere
+else.
+
+GitHub's Windows runners report `windowsocr: true`, so OCR is genuinely
+exercised there, in the packaged build as well as from source. That was worth
+knowing rather than assuming; a runner without the language packs would have
+skipped the test silently and proved nothing.
+
+**What CI cannot cover:** the runners have no Microsoft Office, so
+`office_to_pdf` is skipped, not tested. Word and Excel conversion is only ever
+proved on a machine that actually has Office. The sweep reports it as skipped
+rather than passing it, so the gap is visible in the log instead of being
+mistaken for a pass. Ghostscript, qpdf, Tesseract and LibreOffice are absent
+there too, which is the configuration that matters most anyway.
+
+A verification script that cannot fail is worse than none, so the sweep's
+failure path is tested: corrupt one command name and it reports 41 passed,
+1 failed, and exits 1.
+
 ## Photographing the interface
 
 ```powershell
