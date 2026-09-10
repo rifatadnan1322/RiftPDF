@@ -78,3 +78,21 @@ jobs:
           name: RiftPDF-windows-unpackaged
           path: dist/RiftPDF
           retention-days: 7
+
+  macos:
+    name: macOS engine
+    runs-on: macos-latest
+    # The engine is shared, so a change made for Windows can break the macOS
+    # app without anyone noticing until a release is cut. This session changed
+    # the engine substantially, and nothing was watching that side.
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the engine environment
+        run: ./setup.sh
+
+      - name: Compression, OCR and Word to PDF
+        run: engine/.venv/bin/python tools/selfcheck.py
+
+      - name: Every engine command
+        run: engine/.venv/bin/python tools/command_sweep.py
