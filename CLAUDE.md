@@ -92,6 +92,20 @@ to survive PyInstaller. It only quits the Office application when it had no
 documents open beforehand: Word is effectively single-instance, and quitting it
 underneath a person would take their unsaved work with it.
 
+**PyInstaller collects Qt as binaries, not as modules.** `--exclude-module
+PySide6.QtQuick` changes nothing: the PySide6 hook copies the DLLs directly, so
+the only way to drop them is to delete them after the build, which
+`prune_unused_qt` does. Worth checking rather than reasoning about, too -- Qt
+PDF ships a QML module next to the widget one, so "a Widgets app cannot need
+Quick" is a guess until the packaged app has actually rendered a document
+without it.
+
+**The macOS app shipped pip.** `build.sh` copies `engine/.venv` wholesale, which
+included 10.8 MB of pip inside the bundle, vendored Windows `.exe` launchers and
+all. Found only by looking at what the package contained rather than at what it
+was supposed to contain. `setuptools` is left in on purpose: some libraries
+still import `pkg_resources` at run time.
+
 **PowerShell breaks two obvious things about a windowed .exe.** It strips the
 quotes out of an inline JSON argument before the program sees it, so
 `--command` takes plain flags instead. And it does not wait for a GUI-subsystem
