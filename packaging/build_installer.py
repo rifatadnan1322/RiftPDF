@@ -100,6 +100,10 @@ def build_portable(version: str) -> Path:
                 archive.write(path, Path("RiftPDF") / path.relative_to(PAYLOAD))
         archive.write(ROOT / "docs" / "INSTALL.md", "RiftPDF/INSTALL.md")
         archive.write(ROOT / "README.md", "RiftPDF/README.md")
+        # AGPL-3.0 requires the licence to travel with the program.
+        for name in ("LICENSE", "THIRD-PARTY-NOTICES.md"):
+            if (ROOT / name).exists():
+                archive.write(ROOT / name, f"RiftPDF/{name}")
     return target
 
 

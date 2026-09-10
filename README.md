@@ -222,3 +222,14 @@ RiftPDF detects it automatically and switches to it.
 ```
 
 Requires Swift (Xcode Command Line Tools) and Python 3.11+.
+
+## Licence
+
+RiftPDF is free software under the **GNU Affero General Public License v3.0**.
+Use it, study it, change it, pass it on — but anything you distribute that is
+built from it has to stay free in the same way.
+
+That is not only a preference. PyMuPDF, which does nearly all of the PDF work,
+is dual-licensed AGPL-3.0 or commercial, and RiftPDF uses the free option, so
+the AGPL follows. [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) lists every
+bundled component and its licence.
