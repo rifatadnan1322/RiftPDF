@@ -281,6 +281,7 @@ struct TextEditPanel: View {
                             .foregroundStyle(.tertiary)
                     }
                 }
+                .id(model.generation)
 
                 HStack {
                     Button("Apply \(model.changedCount) change\(model.changedCount == 1 ? "" : "s")") {
@@ -319,14 +320,23 @@ final class TextEditModel: ObservableObject {
 
     @Published var lines: [Line] = []
     @Published var loading = false
+    /// Bumped whenever the rows are replaced, so the editor's text fields are
+    /// rebuilt rather than reusing bindings that point at the previous page.
+    @Published var generation = 0
     private var loadedPage: Int?
 
     var changedCount: Int { lines.filter(\.isChanged).count }
 
     func load(doc: PDFDoc, page: Int, app: AppModel) {
         guard !loading else { return }
+        guard loadedPage != page else { return }
         loading = true
-        lines = []
+        // Deliberately NOT clearing `lines` here. Each text field holds a
+        // binding that indexes into this array; emptying it while SwiftUI
+        // still has a pending edit queued makes that binding read past the
+        // end, which is a fatal error rather than a recoverable one. The old
+        // rows stay until the new ones replace them, and the loading branch
+        // hides them meanwhile.
         loadedPage = page
         Task {
             defer { loading = false }
@@ -355,6 +365,9 @@ final class TextEditModel: ObservableObject {
                             italic: first["italic"] as? Bool ?? false))
                     }
                 }
+                // The page may have moved on while this was in flight.
+                guard loadedPage == page else { return }
+                generation &+= 1
                 lines = collected
             } catch {
                 app.report(error, context: "Could not read the page text")
