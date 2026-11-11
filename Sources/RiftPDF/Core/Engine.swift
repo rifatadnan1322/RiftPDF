@@ -42,10 +42,12 @@ final class Engine: @unchecked Sendable {
 
         for root in roots {
             let script = root.appendingPathComponent("riftpdf_engine.py")
-            let python = root.appendingPathComponent(".venv/bin/python3")
-            let python2 = root.appendingPathComponent(".venv/bin/python")
+            // The app carries a whole Python of its own. The .venv paths are
+            // only for a development checkout made before that was true.
+            let candidates = ["python/bin/python3", ".venv/bin/python3", ".venv/bin/python"]
+                .map { root.appendingPathComponent($0) }
             guard FileManager.default.fileExists(atPath: script.path) else { continue }
-            for candidate in [python, python2] where FileManager.default.isExecutableFile(atPath: candidate.path) {
+            for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate.path) {
                 return (candidate, script)
             }
         }
@@ -67,7 +69,7 @@ final class Engine: @unchecked Sendable {
 
         guard let location else {
             throw Failure(message: "The processing engine is missing.",
-                          detail: "Expected riftpdf_engine.py and a .venv beside the app. Run setup.sh to rebuild it.")
+                          detail: "Expected riftpdf_engine.py and its Python inside the app. Download RiftPDF again, or run setup.sh if you built it yourself.")
         }
 
         // Payloads can be large (OCR word boxes, redaction lists) so hand them
@@ -85,6 +87,13 @@ final class Engine: @unchecked Sendable {
         var env = ProcessInfo.processInfo.environment
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
+        // The bundled Python must behave the same on every Mac: never write
+        // compiled files into the app (that would break its signature), and
+        // never pick up packages or settings from the user's own Python.
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PYTHONNOUSERSITE"] = "1"
+        env.removeValue(forKey: "PYTHONPATH")
+        env.removeValue(forKey: "PYTHONHOME")
         // An app launched from Finder inherits a bare PATH from launchd, so
         // Homebrew tools like Ghostscript are invisible to the engine. This
         // silently cost most of the compression.

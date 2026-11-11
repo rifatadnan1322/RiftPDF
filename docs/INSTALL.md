@@ -81,9 +81,17 @@ service.
 
 ## macOS
 
-Download `RiftPDF-macos.zip` from the
-[releases page](https://github.com/rifatadnan1322/RiftPDF/releases), unzip it,
-and drag **RiftPDF.app** into `/Applications`. Run it from there, not from the
+RiftPDF needs macOS 14 or later. From the
+[releases page](https://github.com/rifatadnan1322/RiftPDF/releases), download
+the zip that matches your Mac:
+
+- `RiftPDF-macos-apple-silicon.zip` — any Mac with an M-series chip
+- `RiftPDF-macos-intel.zip` — a Mac with an Intel processor
+
+If you are not sure which you have, choose Apple menu ▸ **About This Mac** and look at
+the *Chip* or *Processor* line. The wrong one will simply refuse to open.
+
+Unzip it, and drag **RiftPDF.app** into `/Applications`. Run it from there, not from the
 Desktop or Downloads: macOS gates those folders behind a permission prompt that
 stops the app reading its own bundled engine.
 
@@ -111,6 +119,10 @@ If you are comfortable in Terminal, this removes the download flag instead:
 xattr -dr com.apple.quarantine /Applications/RiftPDF.app
 ```
 
+Nothing else needs installing. The app carries its own PDF engine and its own
+copy of Python, so every tool works on a Mac that has never had a developer
+tool on it.
+
 Either way, [check the download first](#checking-a-download-is-genuine). The
 warning cannot tell you whether the file is the real one; the check can.
 
@@ -129,7 +141,7 @@ Get-FileHash .\RiftPDF-1.1.0-Setup.exe -Algorithm SHA256
 ```
 
 ```bash
-shasum -a 256 ~/Downloads/RiftPDF-macos.zip
+shasum -a 256 ~/Downloads/RiftPDF-macos-apple-silicon.zip
 ```
 
 ### Build attestation
@@ -140,7 +152,7 @@ which commit, and stores it in a public log. With the
 [GitHub CLI](https://cli.github.com) installed:
 
 ```bash
-gh attestation verify RiftPDF-macos.zip --repo rifatadnan1322/RiftPDF
+gh attestation verify RiftPDF-macos-apple-silicon.zip --repo rifatadnan1322/RiftPDF
 ```
 
 It passes only if that exact file was built by this repository's own workflow.

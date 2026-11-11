@@ -74,8 +74,13 @@ jobs:
             dist/RiftPDF-*-portable.zip
 
   macos:
-    name: macOS app
-    runs-on: macos-latest
+    name: macOS app (${{ matrix.chip }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - { chip: apple-silicon, runner: macos-latest }
+          - { chip: intel, runner: macos-15-intel }
     permissions:
       contents: read
       id-token: write
@@ -83,24 +88,53 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build the Python engine environment
+      - name: Build the Python the engine runs on
         run: ./setup.sh
 
       - name: Build the app
         run: ./build.sh
 
       - name: Package
-        run: ditto -c -k --keepParent RiftPDF.app RiftPDF-macos.zip
+        run: ditto -c -k --keepParent RiftPDF.app RiftPDF-macos-${{ matrix.chip }}.zip
+
+      - name: Prove the package stands on its own
+        # The app once shipped a Python that was only a link back to the one on
+        # this runner, so it worked here and on nobody else's Mac. Unpack the
+        # zip somewhere fresh, take away the copy it was built from, and make
+        # the packaged engine do real work using only what is inside the app.
+        run: |
+          FRESH="$RUNNER_TEMP/fresh"
+          mkdir -p "$FRESH"
+          ditto -x -k RiftPDF-macos-${{ matrix.chip }}.zip "$FRESH"
+          rm -rf engine/python RiftPDF.app
+          APP="$FRESH/RiftPDF.app"
+          ENGINE="$APP/Contents/Resources/engine"
+
+          codesign --verify --deep --strict "$APP"
+
+          # A link that leaves the bundle is exactly how this broke before.
+          if find "$APP" -type l -exec readlink {} \; | grep '^/'; then
+            echo "The app contains links to files outside itself."; exit 1
+          fi
+          if grep -rIl --include='*.cfg' --include='*.pth' -e "$HOME" -e /opt/homebrew -e /usr/local "$ENGINE/python"; then
+            echo "The bundled Python refers to this machine."; exit 1
+          fi
+
+          cd "$FRESH"
+          run() { env -i HOME="$HOME" PATH=/usr/bin:/bin TMPDIR="$TMPDIR" "$ENGINE/python/bin/python3" "$@"; }
+          run "$ENGINE/riftpdf_engine.py" --selftest
+          run -c "import sys; assert sys.prefix.startswith('$APP'), sys.prefix; print('running from', sys.prefix)"
+          run "$GITHUB_WORKSPACE/tools/command_sweep.py"
 
       - name: Record where this file came from
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: RiftPDF-macos.zip
+          subject-path: RiftPDF-macos-${{ matrix.chip }}.zip
 
       - uses: actions/upload-artifact@v7
         with:
-          name: RiftPDF-macos
-          path: RiftPDF-macos.zip
+          name: RiftPDF-macos-${{ matrix.chip }}
+          path: RiftPDF-macos-${{ matrix.chip }}.zip
 
   release:
     name: Publish release

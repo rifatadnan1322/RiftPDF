@@ -20,9 +20,10 @@ both. The two front ends differ only in how they draw a window.
 
 ## Installing
 
-**macOS** — download `RiftPDF-macos.zip` from
-[Releases](../../releases), unzip it, and drag **RiftPDF.app** to
-`/Applications`. Do not run it from the Desktop: macOS gates anything there
+**macOS** (14 or later) — download the zip for your Mac from
+[Releases](../../releases): `RiftPDF-macos-apple-silicon.zip` for any Mac with
+an M-series chip, `RiftPDF-macos-intel.zip` for an Intel one (Apple menu ▸ About This
+Mac says which). Unzip it, and drag **RiftPDF.app** to `/Applications`. Do not run it from the Desktop: macOS gates anything there
 behind the Desktop-access prompt, which blocks the app's own bundled engine.
 macOS will refuse the first launch, because the app is not notarised by Apple:
 open **System Settings ▸ Privacy & Security**, scroll to *Security*, and click
@@ -43,9 +44,10 @@ including how to check that a download is genuine.
 **From source (any platform)**
 
 ```bash
-./setup.sh                       # builds the Python engine environment
+./setup.sh                       # fetches the Python the engine runs on
 ./build.sh                       # macOS app (needs Swift)
-engine/.venv/bin/python qt/main.py   # Qt app, runs on macOS, Windows and Linux
+
+pip install -r qt/requirements.txt && python qt/main.py   # Qt app, any platform
 ```
 
 ## What the Windows version does not have
@@ -211,18 +213,19 @@ RiftPDF detects it automatically and switches to it.
 
 - **UI** — SwiftUI + PDFKit, the same rendering engine Preview uses.
 - **Engine** — Python (PyMuPDF, pikepdf, pdf2docx, Pillow) bundled inside the
-  app at `Contents/Resources/engine`, driven over a JSON-lines protocol so long
-  jobs report live progress.
+  app at `Contents/Resources/engine`, together with a complete Python of its
+  own, so nothing has to be installed on the Mac it runs on. Driven over a
+  JSON-lines protocol so long jobs report live progress.
 - **OCR** — Apple Vision.
 
 ## Rebuilding
 
 ```
-./setup.sh     # once, builds the Python environment
+./setup.sh     # once, fetches Python and the PDF libraries
 ./build.sh     # compiles and assembles RiftPDF.app
 ```
 
-Requires Swift (Xcode Command Line Tools) and Python 3.11+.
+Requires Swift (Xcode Command Line Tools). Python is fetched by `setup.sh`.
 
 ## Code signing policy
 

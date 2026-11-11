@@ -31,6 +31,7 @@ Qt Project.
 | Component | Version | Licence |
 | --- | --- | --- |
 | PyMuPDF | 1.28.2 | AGPL-3.0, or Artifex commercial |
+| CPython (macOS app only; the python-build-standalone build, with the OpenSSL, SQLite, zlib, bzip2, xz and libffi it links) | 3.12.16 | PSF-2.0, with Apache-2.0, public domain, Zlib, bzip2, 0BSD and MIT respectively |
 | PySide6 / PySide6-Essentials / PySide6-Addons | 6.11.2 | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only |
 | shiboken6 | 6.11.2 | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only |
 | pikepdf | 10.13.0.post1 | MPL-2.0 |

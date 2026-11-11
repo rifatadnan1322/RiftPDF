@@ -100,7 +100,25 @@ PDF ships a QML module next to the widget one, so "a Widgets app cannot need
 Quick" is a guess until the packaged app has actually rendered a document
 without it.
 
-**The macOS app shipped pip.** `build.sh` copies `engine/.venv` wholesale, which
+**The macOS download never worked on anyone else's Mac.** `setup.sh` made a
+virtual environment and `build.sh` copied it into the app. A venv's `python` is
+a symlink to the interpreter that created it — `/opt/homebrew/opt/python@3.15`
+on the CI runner — so on any other Mac the link dangled and every engine
+command failed, while the window still opened and looked fine. It passed every
+check because every check ran on the machine that built it. The app now carries
+a relocatable CPython (python-build-standalone, pinned and checksummed in
+`setup.sh`) at `Contents/Resources/engine/python`, and the release workflow
+unzips its own package somewhere fresh, deletes the copy it was built from, and
+runs the command sweep with the packaged Python under `env -i`. Look for
+absolute symlinks and paths in anything that ships.
+
+**Unpinned requirements change the product without a commit.** Between
+September and November the same source built a Windows installer 29 MB larger,
+because `pymupdf>=1.24` had resolved to a new major version that pulls in
+onnxruntime. Both requirements files are pinned to what 1.1.0 was verified
+with; move them on purpose and re-run `tools/command_sweep.py`.
+
+**The macOS app shipped pip.** `build.sh` copied the environment wholesale, which
 included 10.8 MB of pip inside the bundle, vendored Windows `.exe` launchers and
 all. Found only by looking at what the package contained rather than at what it
 was supposed to contain. `setuptools` is left in on purpose: some libraries

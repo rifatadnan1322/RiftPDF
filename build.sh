@@ -19,25 +19,47 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 echo "▸ Bundling the engine…"
 mkdir -p "$APP/Contents/Resources/engine"
 cp engine/riftpdf_engine.py engine/requirements.txt "$APP/Contents/Resources/engine/"
-if [ -d engine/.venv ]; then
-  cp -R engine/.venv "$APP/Contents/Resources/engine/.venv"
+if [ -d engine/python ]; then
+  # A whole Python, not a virtual environment: see setup.sh for why.
+  cp -R engine/python "$APP/Contents/Resources/engine/python"
+  PYTHON="$APP/Contents/Resources/engine/python"
+  LIB=$(find "$PYTHON/lib" -maxdepth 1 -type d -name "python3.*" | head -1)
 
-  # pip is needed to build this environment and never to run it, but copying
-  # the venv wholesale shipped all 10.8 MB of it inside the app — including
-  # pip's vendored Windows .exe launchers, sitting inside a macOS bundle.
-  # Nothing here installs anything at run time.
-  VENV="$APP/Contents/Resources/engine/.venv"
-  SITE=$(find "$VENV/lib" -maxdepth 2 -type d -name site-packages | head -1)
-  if [ -n "$SITE" ]; then
-    rm -rf "$SITE"/pip "$SITE"/pip-*.dist-info \
-           "$SITE"/wheel "$SITE"/wheel-*.dist-info
-  fi
-  rm -f "$VENV"/bin/pip "$VENV"/bin/pip3 "$VENV"/bin/pip3.* "$VENV"/bin/wheel
+  # Needed to build this Python and never to run it. Copying it wholesale once
+  # shipped all of pip inside the app, vendored Windows .exe launchers and
+  # all. Nothing here installs anything at run time, and the engine has no
+  # use for a GUI toolkit, an IDE or the standard library's own test suite.
+  rm -rf "$LIB"/site-packages/pip "$LIB"/site-packages/pip-*.dist-info \
+         "$LIB"/site-packages/wheel "$LIB"/site-packages/wheel-*.dist-info \
+         "$LIB"/ensurepip "$LIB"/idlelib "$LIB"/tkinter "$LIB"/turtledemo \
+         "$LIB"/test "$LIB"/lib-dynload/_tkinter*.so \
+         "$PYTHON"/lib/tcl* "$PYTHON"/lib/tk* "$PYTHON"/lib/itcl* \
+         "$PYTHON"/lib/thread* "$PYTHON"/lib/libtcl* "$PYTHON"/lib/libtk* \
+         "$PYTHON"/include "$PYTHON"/share
+  # Only the interpreter stays in bin. The rest are launcher scripts whose
+  # first line is the full path of the Python that installed them -- on the
+  # machine that built the app, which is useless anywhere else and publishes
+  # the builder's home folder name.
+  find "$PYTHON/bin" -mindepth 1 ! -name "python" ! -name "python3" ! -name "python3.*" -delete
+  rm -f "$PYTHON"/bin/python*-config
 
   # setuptools is deliberately left alone: some libraries still import
   # pkg_resources at run time, and a few megabytes is not worth that risk.
+
+  # Compile everything now. The app never writes into its own bundle -- doing
+  # so would break the signature that seals it -- so without this every launch
+  # would recompile the lot from source. "unchecked-hash" because unzipping a
+  # download resets file dates, which would otherwise make every one of these
+  # look out of date.
+  find "$PYTHON" -name "__pycache__" -type d -prune -exec rm -rf {} +
+  "$PYTHON/bin/python3" -m compileall -q --invalidation-mode unchecked-hash "$LIB" > /dev/null || true
+
+  # Prove the copy inside the bundle stands on its own before signing it.
+  "$PYTHON/bin/python3" "$APP/Contents/Resources/engine/riftpdf_engine.py" --selftest > /dev/null \
+    || { echo "  ! the bundled engine failed its self-test"; exit 1; }
 else
-  echo "  ! engine/.venv missing — run ./setup.sh first"
+  echo "  ! engine/python missing — run ./setup.sh first"
+  exit 1
 fi
 
 echo "▸ Signing…"

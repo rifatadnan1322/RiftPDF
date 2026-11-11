@@ -92,7 +92,7 @@ jobs:
         run: ./setup.sh
 
       - name: Compression, OCR and Word to PDF
-        run: engine/.venv/bin/python tools/selfcheck.py
+        run: engine/python/bin/python3 tools/selfcheck.py
 
       - name: Every engine command
-        run: engine/.venv/bin/python tools/command_sweep.py
+        run: engine/python/bin/python3 tools/command_sweep.py

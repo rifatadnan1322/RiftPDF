@@ -1,8 +1,10 @@
-PySide6>=6.6
-pymupdf>=1.24
-pikepdf>=8
-Pillow>=10
-python-docx>=1.1
-pdf2docx>=0.5
-openpyxl>=3.1
-winsdk>=1.0.0b10; sys_platform == "win32"
+# Pinned on purpose -- see engine/requirements.txt. Keep the shared libraries
+# at the same versions in both files.
+PySide6==6.11.2
+pymupdf==1.28.2
+pikepdf==10.13.0.post1
+Pillow==12.3.0
+python-docx==1.2.0
+pdf2docx==0.5.13
+openpyxl==3.1.5
+winsdk==1.0.0b10; sys_platform == "win32"
