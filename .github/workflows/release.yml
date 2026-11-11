@@ -8,13 +8,19 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Nothing gets write access by default. The build jobs can only sign a
+# statement about what they built; only the publish job can touch a release.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   windows:
     name: Windows installer
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v7
 
@@ -40,17 +46,40 @@ jobs:
       - name: Build the application and the installer
         run: python packaging/build_installer.py --app
 
+      - name: Check the .exe says what it is
+        # Properties > Details on an executable with no name, version or
+        # licence looks like something hiding. Fail rather than ship that.
+        shell: pwsh
+        run: |
+          $info = (Get-Item dist\RiftPDF\RiftPDF.exe).VersionInfo
+          $info | Format-List ProductName, FileVersion, CompanyName, LegalCopyright
+          if ($info.ProductName -ne "RiftPDF") { throw "RiftPDF.exe carries no version metadata" }
+
+      - name: Record where these files came from
+        # A signed statement, kept in a public log, that these exact files
+        # were built by this workflow from this commit. Anyone can check a
+        # download against it with `gh attestation verify`, so a file swapped
+        # after the build -- or built anywhere else -- does not pass.
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/RiftPDF-*-Setup.exe
+            dist/RiftPDF-*-portable.zip
+
       - uses: actions/upload-artifact@v7
         with:
           name: RiftPDF-windows
           path: |
             dist/RiftPDF-*-Setup.exe
             dist/RiftPDF-*-portable.zip
-            dist/SHA256SUMS.txt
 
   macos:
     name: macOS app
     runs-on: macos-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v7
 
@@ -63,6 +92,11 @@ jobs:
       - name: Package
         run: ditto -c -k --keepParent RiftPDF.app RiftPDF-macos.zip
 
+      - name: Record where this file came from
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: RiftPDF-macos.zip
+
       - uses: actions/upload-artifact@v7
         with:
           name: RiftPDF-macos
@@ -73,20 +107,41 @@ jobs:
     needs: [windows, macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: packages
+          merge-multiple: true
+
+      - name: Checksums for every download
+        # One list covering both platforms, written here from the files that
+        # are about to be published rather than carried over from a build job.
+        working-directory: packages
+        run: |
+          sha256sum *.exe *.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Attach packages to the release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            packages/**/*.exe
-            packages/**/*.zip
-            packages/**/SHA256SUMS.txt
-          # Deliberately not generate_release_notes. Release notes here are
-          # written by hand -- what changed, what was actually verified, what
-          # SmartScreen will say -- and running this against a release that
-          # already has them would replace that with a list of commit titles.
-          # Attaching files to an existing release must not rewrite it.
+        # Done with the GitHub CLI rather than a third-party action: this is
+        # the one step holding a token that can change a release, and nobody
+        # else's code should run with it.
+        #
+        # Release notes are written by hand -- what changed, what was actually
+        # verified, what SmartScreen will say. Attaching files to a release
+        # that already exists must not rewrite them, so an existing release
+        # only receives the files.
+        working-directory: packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" *.exe *.zip SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" *.exe *.zip SHA256SUMS.txt \
+              --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "RiftPDF ${TAG#v}" \
+              --notes "Release notes to follow. See docs/INSTALL.md for how to install and how to verify a download."
+          fi

@@ -13,6 +13,7 @@ a macOS or Linux binary, not a .exe.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -52,6 +53,50 @@ def prune_unused_qt(produced: Path) -> None:
         print(f"pruned {freed / 1048576:.1f} MB of Qt modules the app never loads")
 
 
+def write_version_info(build: Path) -> Path:
+    """Give the .exe a name, version and licence in Properties > Details.
+
+    An executable with every one of those fields blank looks like something
+    that wants to stay anonymous, and it is also what a signing service checks
+    to confirm a file is the product it claims to be.
+    """
+    source = (ROOT / "qt" / "riftpdf_qt" / "app.py").read_text(encoding="utf-8")
+    match = re.search(r'^APP_VERSION\s*=\s*"([^"]+)"', source, re.M)
+    if not match:
+        raise SystemExit("APP_VERSION not found in qt/riftpdf_qt/app.py")
+    version = match.group(1)
+    numbers = [int(part) for part in re.findall(r"\d+", version)][:4]
+    numbers += [0] * (4 - len(numbers))
+    quad = ", ".join(str(n) for n in numbers)
+    fields = {
+        "CompanyName": "RiftPDF",
+        "FileDescription": "RiftPDF",
+        "FileVersion": version,
+        "InternalName": "RiftPDF",
+        "LegalCopyright": "Free software under the GNU AGPL v3.0",
+        "OriginalFilename": "RiftPDF.exe",
+        "ProductName": "RiftPDF",
+        "ProductVersion": version,
+    }
+    strings = ",\n        ".join(
+        f"StringStruct({key!r}, {value!r})" for key, value in fields.items()
+    )
+    build.mkdir(parents=True, exist_ok=True)
+    target = build / "version_info.txt"
+    target.write_text(
+        "VSVersionInfo(\n"
+        f"  ffi=FixedFileInfo(filevers=({quad}), prodvers=({quad})),\n"
+        "  kids=[\n"
+        "    StringFileInfo([StringTable('040904B0', [\n"
+        f"        {strings}])]),\n"
+        "    VarFileInfo([VarStruct('Translation', [1033, 1200])]),\n"
+        "  ]\n"
+        ")\n",
+        encoding="utf-8",
+    )
+    return target
+
+
 def main() -> int:
     dist = ROOT / "dist"
     build = ROOT / "build"
@@ -78,6 +123,7 @@ def main() -> int:
         # time, so nothing static points at them and PyInstaller would leave
         # them out — taking Windows OCR with them.
         command += ["--collect-all", "winsdk"]
+        command += ["--version-file", str(write_version_info(build))]
     if icon.exists():
         command += ["--icon", str(icon)]
     command.append(str(ROOT / "qt" / "main.py"))

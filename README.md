@@ -24,8 +24,9 @@ both. The two front ends differ only in how they draw a window.
 [Releases](../../releases), unzip it, and drag **RiftPDF.app** to
 `/Applications`. Do not run it from the Desktop: macOS gates anything there
 behind the Desktop-access prompt, which blocks the app's own bundled engine.
-The first launch may need a right-click → *Open* (ad-hoc signature, not a paid
-Developer ID).
+macOS will refuse the first launch, because the app is not notarised by Apple:
+open **System Settings ▸ Privacy & Security**, scroll to *Security*, and click
+**Open Anyway**. [docs/INSTALL.md](docs/INSTALL.md#macos) walks through it.
 
 **Windows** — download `RiftPDF-<version>-Setup.exe` from
 [Releases](../../releases) and run it. No administrator password is needed.
@@ -37,7 +38,7 @@ Nothing else has to be fetched. OCR uses the recogniser built into Windows 10
 and 11, and Word or Excel conversion uses Microsoft Office if you have it.
 Tesseract and LibreOffice are still used in preference where they are present,
 but neither is required. [docs/INSTALL.md](docs/INSTALL.md) has the detail,
-including how to check the download's SHA-256.
+including how to check that a download is genuine.
 
 **From source (any platform)**
 
@@ -222,6 +223,40 @@ RiftPDF detects it automatically and switches to it.
 ```
 
 Requires Swift (Xcode Command Line Tools) and Python 3.11+.
+
+## Code signing policy
+
+Where this stands today: the downloads are **not yet code signed**, so Windows
+SmartScreen and macOS Gatekeeper both warn the first time you run them. Signing
+needs a verified publisher identity, and that is being arranged; until then the
+warning is about the missing identity, not about anything found in the files.
+
+What is already true of every release:
+
+- **Built in the open.** Every package is produced by
+  [GitHub Actions](.github/workflows/release.yml) from the source in this
+  repository. Nothing is built or uploaded from a personal computer.
+- **Checkable.** Each release publishes SHA-256 checksums, and releases after
+  1.1.0 carry a signed build attestation tying each file to the commit it was
+  built from. [docs/INSTALL.md](docs/INSTALL.md#checking-a-download-is-genuine)
+  shows how to check one.
+- **Released by a person.** A release happens only when the maintainer tags
+  one; nothing is published automatically.
+
+Roles:
+
+- Author, reviewer and release approver: [Rifat Adnan](https://github.com/rifatadnan1322)
+
+Changes from anyone else arrive as pull requests and are reviewed before they
+are merged.
+
+## Privacy
+
+RiftPDF will not transfer any information to other networked systems unless
+specifically requested by the user or the person installing or operating it.
+In practice it makes no network connections at all: no account, no telemetry,
+no update check, no cloud services. [SECURITY.md](SECURITY.md) says how to
+report a problem.
 
 ## Licence
 
