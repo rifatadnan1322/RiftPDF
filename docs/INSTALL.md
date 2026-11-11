@@ -137,7 +137,7 @@ Each release has a `SHA256SUMS.txt`. Work out the checksum of your download and
 compare it with the line for that file; they should match exactly.
 
 ```powershell
-Get-FileHash .\RiftPDF-1.1.0-Setup.exe -Algorithm SHA256
+Get-FileHash .\RiftPDF-1.1.1-Setup.exe -Algorithm SHA256
 ```
 
 ```bash

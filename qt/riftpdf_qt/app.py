@@ -24,7 +24,7 @@ from .viewer import DocumentView, SearchBar
 APP_NAME = "RiftPDF"
 # One source of truth: the installer and the About box both read this, so a
 # release cannot go out claiming two different versions of itself.
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 
 
 class ReportDialog(QDialog):

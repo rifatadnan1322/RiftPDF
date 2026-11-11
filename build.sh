@@ -13,6 +13,13 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/RiftPDF "$APP/Contents/MacOS/RiftPDF"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# One version number for both apps: the Qt app's. The macOS app used to carry
+# its own in Info.plist, and shipped as "1.0" inside a release called 1.1.0.
+VERSION=$(sed -n 's/^APP_VERSION *= *"\(.*\)"/\1/p' qt/riftpdf_qt/app.py)
+if [ -n "$VERSION" ]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" \
+                          -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
+fi
 [ -f AppIcon.icns ] && cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 [ -f Resources/AppMark.png ] && cp Resources/AppMark.png "$APP/Contents/Resources/AppMark.png"
 

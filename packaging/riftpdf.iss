@@ -12,7 +12,7 @@
 #define AppPublisher   "RiftPDF"
 #define AppURL         "https://github.com/rifatadnan1322/RiftPDF"
 #ifndef AppVersion
-  #define AppVersion   "1.1.0"
+  #define AppVersion   "1.1.1"
 #endif
 #ifndef SourceDir
   #define SourceDir    "..\dist\RiftPDF"
